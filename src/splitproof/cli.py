@@ -8,6 +8,7 @@ from collections.abc import Sequence
 from itertools import combinations
 from pathlib import Path
 
+from . import __version__
 from .assigners import (
     ALGORITHM_VERSION,
     balanced_group_split,
@@ -44,6 +45,8 @@ def _fields(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--id-field", default="id")
     parser.add_argument("--group-field", default="group")
     parser.add_argument("--label-field", default="label")
+    parser.add_argument("--weight-field", default="weight")
+    parser.add_argument("--group-weight-field", default="group_weight")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -52,7 +55,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="splitproof",
         description="Reproducible NLP dataset splits with verifiable manifests.",
     )
-    parser.add_argument("--version", action="version", version="%(prog)s 0.1.0")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
     split = commands.add_parser("split", help="create train/validation/test assignments")
@@ -70,6 +73,11 @@ def build_parser() -> argparse.ArgumentParser:
     split.add_argument("--seed", default="0")
     split.add_argument("--assignments", type=Path, required=True)
     split.add_argument("--manifest", type=Path, required=True)
+    split.add_argument(
+        "--max-local-iterations",
+        type=int,
+        help="local-improvement limit for group algorithms; default is deterministic auto",
+    )
 
     kfold = commands.add_parser("kfold", help="create group-aware k-fold assignments")
     _fields(kfold)
@@ -78,6 +86,11 @@ def build_parser() -> argparse.ArgumentParser:
     kfold.add_argument("--stratified", action="store_true")
     kfold.add_argument("--assignments", type=Path, required=True)
     kfold.add_argument("--manifest", type=Path, required=True)
+    kfold.add_argument(
+        "--max-local-iterations",
+        type=int,
+        help="local-improvement limit; use 0 for greedy-only placement",
+    )
 
     verify = commands.add_parser("verify", help="verify a manifest against current data")
     _fields(verify)
@@ -102,6 +115,8 @@ def _load(args: argparse.Namespace):  # type: ignore[no-untyped-def]
         id_field=args.id_field,
         group_field=args.group_field,
         label_field=args.label_field,
+        weight_field=args.weight_field,
+        group_weight_field=args.group_weight_field,
     )
 
 
@@ -130,12 +145,20 @@ def _run_split(args: argparse.Namespace) -> int:
         manifest=args.manifest,
     )
     records = _load(args)
-    algorithms = {
-        "hash": hash_split,
-        "group": balanced_group_split,
-        "stratified-group": stratified_group_split,
-    }
-    assignments = algorithms[args.algorithm](records, args.ratios, seed=args.seed)
+    if args.algorithm == "hash":
+        if args.max_local_iterations is not None:
+            raise ValueError("--max-local-iterations is only valid for group algorithms")
+        assignments = hash_split(records, args.ratios, seed=args.seed)
+        optimizer = "record-hash-v1"
+    else:
+        algorithm = balanced_group_split if args.algorithm == "group" else stratified_group_split
+        assignments = algorithm(
+            records,
+            args.ratios,
+            seed=args.seed,
+            max_local_iterations=args.max_local_iterations,
+        )
+        optimizer = "greedy-local-v3"
     manifest = create_manifest(
         records,
         assignments,
@@ -143,10 +166,23 @@ def _run_split(args: argparse.Namespace) -> int:
         algorithm_version=ALGORITHM_VERSION,
         seed=args.seed,
         ratios=args.ratios,
+        metadata={
+            "optimizer": optimizer,
+            "max_local_iterations": args.max_local_iterations,
+        },
     )
     save_assignments(assignments, args.assignments)
     save_manifest(manifest, args.manifest)
-    print(report_markdown(diagnose(records, assignments, args.ratios)))
+    print(
+        report_markdown(
+            diagnose(
+                records,
+                assignments,
+                args.ratios,
+                include_label_balance=args.algorithm == "stratified-group",
+            )
+        )
+    )
     return 0
 
 
@@ -157,7 +193,13 @@ def _run_kfold(args: argparse.Namespace) -> int:
         manifest=args.manifest,
     )
     records = _load(args)
-    assignments = assign_kfold(records, args.folds, seed=args.seed, stratified=args.stratified)
+    assignments = assign_kfold(
+        records,
+        args.folds,
+        seed=args.seed,
+        stratified=args.stratified,
+        max_local_iterations=args.max_local_iterations,
+    )
     ratios = {f"fold-{index}": 1 / args.folds for index in range(args.folds)}
     manifest = create_manifest(
         records,
@@ -166,11 +208,24 @@ def _run_kfold(args: argparse.Namespace) -> int:
         algorithm_version=ALGORITHM_VERSION,
         seed=args.seed,
         ratios=ratios,
-        metadata={"folds": args.folds},
+        metadata={
+            "folds": args.folds,
+            "optimizer": "greedy-local-v3",
+            "max_local_iterations": args.max_local_iterations,
+        },
     )
     save_assignments(assignments, args.assignments)
     save_manifest(manifest, args.manifest)
-    print(report_markdown(diagnose(records, assignments, ratios)))
+    print(
+        report_markdown(
+            diagnose(
+                records,
+                assignments,
+                ratios,
+                include_label_balance=args.stratified,
+            )
+        )
+    )
     return 0
 
 
@@ -209,7 +264,12 @@ def _run_inspect(args: argparse.Namespace) -> int:
     errors = verify_manifest(manifest, records)
     if errors:
         return _print_verification(errors)
-    report = diagnose(records, manifest.assignments, manifest.ratios)
+    report = diagnose(
+        records,
+        manifest.assignments,
+        manifest.ratios,
+        include_label_balance="stratified" in manifest.algorithm,
+    )
     rendered = report_json(report) + "\n" if args.format == "json" else report_markdown(report)
     if args.output:
         args.output.write_text(rendered, encoding="utf-8")

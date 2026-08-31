@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-from collections import Counter
 from collections.abc import Iterable
 
-from .assigners import _Group, _group_order, _groups
+from .assigners import _groups, _optimize_groups
 from .constraints import ConstraintError, require_labels, validate_records
-from .hashing import stable_digest
 from .models import Assignment, Record
 
 
@@ -17,9 +15,12 @@ def assign_kfold(
     *,
     seed: str | int = "0",
     stratified: bool = False,
+    max_local_iterations: int | None = None,
 ) -> tuple[Assignment, ...]:
     """Assign intact groups to folds, optionally balancing label counts."""
     materialized = validate_records(records)
+    if isinstance(folds, bool) or not isinstance(folds, int):
+        raise ConstraintError("folds must be an integer")
     if folds < 2:
         raise ConstraintError("folds must be at least 2")
     groups = _groups(materialized)
@@ -30,25 +31,21 @@ def assign_kfold(
     if stratified:
         require_labels(materialized)
     seed_text = str(seed)
-    ordered = _group_order(groups, seed_text, stratified=stratified)
-    sizes = [0] * folds
-    label_counts = [Counter[str]() for _ in range(folds)]
-    totals = Counter(item.label for item in materialized if item.label is not None)
-    result: list[Assignment] = []
-
-    def score(fold: int, group: _Group) -> tuple[float, str]:
-        size_cost = sizes[fold] + group.size
-        label_cost = 0.0
-        if stratified:
-            for label, count in group.labels.items():
-                target = totals[label] / folds
-                label_cost += abs(label_counts[fold][label] + count - target) / max(1.0, target)
-        tie = stable_digest(group.key, str(fold), seed=seed_text, domain="fold-choice")
-        return label_cost * len(materialized) + size_cost, tie
-
-    for group in ordered:
-        fold = min(range(folds), key=lambda index: score(index, group))
-        sizes[fold] += group.size
-        label_counts[fold].update(group.labels)
-        result.extend(Assignment(record.id, f"fold-{fold}", fold) for record in group.records)
+    ratios = {f"fold-{index}": 1 / folds for index in range(folds)}
+    destinations = _optimize_groups(
+        groups,
+        ratios,
+        seed=seed_text,
+        stratified=stratified,
+        max_local_iterations=max_local_iterations,
+    )
+    result = [
+        Assignment(
+            record.id,
+            destinations[group.key],
+            int(destinations[group.key].removeprefix("fold-")),
+        )
+        for group in groups
+        for record in group.records
+    ]
     return tuple(sorted(result, key=lambda item: item.record_id))

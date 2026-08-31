@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+message: "If SplitProof supports your work, cite the software using this metadata."
+title: SplitProof
+type: software
+authors:
+  - family-names: Wei
+    given-names: Ping
+repository-code: "https://github.com/appleweiping/splitproof"
+url: "https://github.com/appleweiping/splitproof"
+license: MIT
+version: 0.2.0
+date-released: 2026-08-31

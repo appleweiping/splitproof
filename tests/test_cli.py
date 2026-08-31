@@ -314,3 +314,97 @@ def test_inspect_rejects_output_overwriting_an_input(tmp_path, capsys, collision
     )
     assert protected.read_bytes() == original
     assert "paths must be different" in capsys.readouterr().err
+
+
+def test_cli_supports_custom_multilabel_and_weight_fields(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    data = tmp_path / "weighted.jsonl"
+    rows = [
+        {
+            "uid": f"r{index}",
+            "thread": f"g{index // 2}",
+            "classes": ["shared", f"class-{index % 2}"],
+            "importance": 1 + index / 10,
+            "thread_importance": 2 + index // 2,
+        }
+        for index in range(8)
+    ]
+    data.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+    assignments = tmp_path / "assignments.jsonl"
+    manifest = tmp_path / "manifest.json"
+    assert (
+        main(
+            [
+                "split",
+                str(data),
+                "--id-field",
+                "uid",
+                "--group-field",
+                "thread",
+                "--label-field",
+                "classes",
+                "--weight-field",
+                "importance",
+                "--group-weight-field",
+                "thread_importance",
+                "--algorithm",
+                "stratified-group",
+                "--ratios",
+                "train=0.5,test=0.5",
+                "--max-local-iterations",
+                "20",
+                "--assignments",
+                str(assignments),
+                "--manifest",
+                str(manifest),
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "Record weight" in output
+    assert "per-label weight" in output
+    value = json.loads(manifest.read_text(encoding="utf-8"))
+    assert value["schema_version"] == "2"
+    assert value["algorithm_version"] == "3"
+    assert value["metadata"]["optimizer"] == "greedy-local-v3"
+
+
+def test_cli_rejects_invalid_or_irrelevant_local_search_limit(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    data = tmp_path / "data.jsonl"
+    write_dataset(data)
+    base = [
+        "--assignments",
+        str(tmp_path / "assignments.jsonl"),
+        "--manifest",
+        str(tmp_path / "manifest.json"),
+    ]
+    assert (
+        main(
+            [
+                "split",
+                str(data),
+                "--algorithm",
+                "group",
+                "--max-local-iterations",
+                "-1",
+                *base,
+            ]
+        )
+        == 2
+    )
+    assert "max_local_iterations" in capsys.readouterr().err
+    assert (
+        main(
+            [
+                "split",
+                str(data),
+                "--algorithm",
+                "hash",
+                "--max-local-iterations",
+                "0",
+                *base,
+            ]
+        )
+        == 2
+    )
+    assert "only valid for group algorithms" in capsys.readouterr().err

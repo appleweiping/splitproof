@@ -1,0 +1,62 @@
+{
+  "benchmark_version": "1",
+  "dataset": {
+    "groups": 60,
+    "labels": 7,
+    "records": 150,
+    "total_record_weight": 260.0
+  },
+  "methods": {
+    "greedy_only_v3": {
+      "group_leakage": 0,
+      "max_count_deviation": 0.01333333,
+      "max_group_weight_deviation": 0.03703704,
+      "max_label_deviation": 0.12222222,
+      "max_record_weight_deviation": 0.04807692,
+      "objective": 0.0229607081,
+      "order_independent": true
+    },
+    "legacy_greedy_v2": {
+      "group_leakage": 0,
+      "max_count_deviation": 0.04,
+      "max_group_weight_deviation": 0.06666667,
+      "max_label_deviation": 0.4,
+      "max_record_weight_deviation": 0.05288462,
+      "objective": 0.1200373454,
+      "order_independent": true
+    },
+    "optimized_v3": {
+      "group_leakage": 0,
+      "max_count_deviation": 0.02,
+      "max_group_weight_deviation": 0.01851852,
+      "max_label_deviation": 0.04974619,
+      "max_record_weight_deviation": 0.0375,
+      "objective": 0.0083414534,
+      "order_independent": true
+    },
+    "record_hash": {
+      "group_leakage": 33,
+      "max_count_deviation": 0.02,
+      "max_group_weight_deviation": 0.12372881,
+      "max_label_deviation": 0.14313725,
+      "max_record_weight_deviation": 0.01826923,
+      "objective": 0.1414003693,
+      "order_independent": true
+    },
+    "seeded_random_group": {
+      "group_leakage": 0,
+      "max_count_deviation": 0.06666667,
+      "max_group_weight_deviation": 0.07407407,
+      "max_label_deviation": 0.3952381,
+      "max_record_weight_deviation": 0.08076923,
+      "objective": 0.1727162016,
+      "order_independent": true
+    }
+  },
+  "ratios": {
+    "test": 0.2,
+    "train": 0.6,
+    "validation": 0.2
+  },
+  "seed": "splitproof-v0.2-benchmark"
+}

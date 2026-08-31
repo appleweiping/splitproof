@@ -29,6 +29,33 @@ def _stable_scalar(value: Any, field_name: str, *, allow_none: bool) -> str | No
     return result
 
 
+def _positive_weight(value: Any, field_name: str, *, allow_none: bool) -> float | None:
+    if value is None and allow_none:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a positive finite number")
+    result = float(value)
+    if not math.isfinite(result) or result <= 0:
+        raise ValueError(f"{field_name} must be a positive finite number")
+    return result
+
+
+def _label_values(value: Any, field_name: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    values = value if isinstance(value, list) else [value]
+    labels: list[str] = []
+    for item in values:
+        label = _stable_scalar(item, field_name, allow_none=False)
+        assert label is not None
+        if not label:
+            raise ValueError(f"{field_name} values must not be empty")
+        labels.append(label)
+    if len(labels) != len(set(labels)):
+        raise ValueError(f"{field_name} must not contain duplicate values")
+    return tuple(sorted(labels))
+
+
 @dataclass(frozen=True, slots=True)
 class Record:
     """A dataset row reduced to the fields relevant to splitting.
@@ -41,15 +68,41 @@ class Record:
     group: str | None = None
     label: str | None = None
     payload: Mapping[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    labels: tuple[str, ...] = ()
+    weight: float = 1.0
+    group_weight: float | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.id, str) or not self.id.strip():
             raise ValueError("record id must be a non-empty string")
         if self.group is not None and not isinstance(self.group, str):
             raise ValueError("record group must be a string or null")
-        if self.label is not None and not isinstance(self.label, str):
-            raise ValueError("record label must be a string or null")
+        if self.label is not None and (not isinstance(self.label, str) or not self.label):
+            raise ValueError("record label must be a non-empty string or null")
+        labels_value: object = self.labels
+        if not isinstance(labels_value, tuple) or not all(
+            isinstance(label, str) and bool(label) for label in labels_value
+        ):
+            raise ValueError("record labels must be non-empty strings")
+        if len(labels_value) != len(set(labels_value)):
+            raise ValueError("record labels must not contain duplicates")
+        normalized_labels = tuple(
+            sorted(set(labels_value) | ({self.label} if self.label else set()))
+        )
+        normalized_weight = _positive_weight(self.weight, "record weight", allow_none=False)
+        normalized_group_weight = _positive_weight(
+            self.group_weight, "record group_weight", allow_none=True
+        )
+        assert normalized_weight is not None
+        object.__setattr__(self, "labels", normalized_labels)
+        object.__setattr__(self, "weight", normalized_weight)
+        object.__setattr__(self, "group_weight", normalized_group_weight)
         object.__setattr__(self, "payload", dict(self.payload))
+
+    @property
+    def all_labels(self) -> tuple[str, ...]:
+        """Return the normalized label set used for stratification."""
+        return self.labels
 
     @classmethod
     def from_mapping(
@@ -59,6 +112,8 @@ class Record:
         id_field: str = "id",
         group_field: str = "group",
         label_field: str = "label",
+        weight_field: str = "weight",
+        group_weight_field: str = "group_weight",
     ) -> Record:
         """Create a record from a JSON-compatible mapping."""
         if id_field not in value:
@@ -66,11 +121,25 @@ class Record:
         identifier = _stable_scalar(value[id_field], "record id", allow_none=False)
         assert identifier is not None
         group = _stable_scalar(value.get(group_field), "record group", allow_none=True)
-        label = _stable_scalar(value.get(label_field), "record label", allow_none=True)
+        raw_label = value.get(label_field)
+        if isinstance(raw_label, list):
+            label = None
+            labels = _label_values(raw_label, "record labels")
+        else:
+            label = _stable_scalar(raw_label, "record label", allow_none=True)
+            labels = ()
+        weight = _positive_weight(value.get(weight_field, 1.0), "record weight", allow_none=False)
+        group_weight = _positive_weight(
+            value.get(group_weight_field), "record group_weight", allow_none=True
+        )
+        assert weight is not None
         return cls(
             id=identifier,
             group=group,
             label=label,
+            labels=labels,
+            weight=weight,
+            group_weight=group_weight,
             payload=dict(value),
         )
 
@@ -83,6 +152,16 @@ class Assignment:
     split: str
     fold: int | None = None
 
+    def __post_init__(self) -> None:
+        if not isinstance(self.record_id, str) or not self.record_id.strip():
+            raise ValueError("assignment record_id must be a non-empty string")
+        if not isinstance(self.split, str) or not self.split:
+            raise ValueError("assignment split must be a non-empty string")
+        if self.fold is not None and (
+            isinstance(self.fold, bool) or not isinstance(self.fold, int) or self.fold < 0
+        ):
+            raise ValueError("assignment fold must be a non-negative integer or null")
+
 
 @dataclass(frozen=True, slots=True)
 class SplitDiagnostics:
@@ -90,8 +169,19 @@ class SplitDiagnostics:
 
     counts: Mapping[str, int]
     ratios: Mapping[str, float]
+    record_weights: Mapping[str, float]
+    record_weight_ratios: Mapping[str, float]
+    group_weights: Mapping[str, float]
+    group_weight_ratios: Mapping[str, float]
     label_counts: Mapping[str, Mapping[str, int]]
+    label_weights: Mapping[str, Mapping[str, float]]
+    label_deviations: Mapping[str, float]
     max_ratio_deviation: float
+    max_record_weight_deviation: float
+    max_group_weight_deviation: float
+    max_label_deviation: float
+    objective_score: float
+    objective_components: Mapping[str, float]
     group_leakage: tuple[str, ...]
     missing_ids: tuple[str, ...]
     unexpected_ids: tuple[str, ...]
@@ -185,7 +275,10 @@ class SplitManifest:
                 raise ValueError("manifest ratio names must be strings")
             if isinstance(ratio, bool) or not isinstance(ratio, (int, float)):
                 raise ValueError(f"manifest ratio {name!r} must be a number")
-            ratios[name] = float(ratio)
+            normalized_ratio = float(ratio)
+            if not math.isfinite(normalized_ratio) or normalized_ratio <= 0:
+                raise ValueError(f"manifest ratio {name!r} must be finite and greater than zero")
+            ratios[name] = normalized_ratio
 
         assignments: list[Assignment] = []
         assignment_fields = {"record_id", "split", "fold"}

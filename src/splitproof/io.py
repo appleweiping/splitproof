@@ -16,6 +16,8 @@ def load_records(
     id_field: str = "id",
     group_field: str = "group",
     label_field: str = "label",
+    weight_field: str = "weight",
+    group_weight_field: str = "group_weight",
 ) -> tuple[Record, ...]:
     """Load records from a JSON array or newline-delimited JSON objects."""
     source = Path(path)
@@ -40,7 +42,12 @@ def load_records(
             raise ValueError(f"record {index} must be a JSON object")
         records.append(
             Record.from_mapping(
-                value, id_field=id_field, group_field=group_field, label_field=label_field
+                value,
+                id_field=id_field,
+                group_field=group_field,
+                label_field=label_field,
+                weight_field=weight_field,
+                group_weight_field=group_weight_field,
             )
         )
     return tuple(records)

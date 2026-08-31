@@ -14,9 +14,20 @@ from splitproof import (
     verify_manifest,
 )
 from splitproof.constraints import ConstraintError
-from splitproof.hashing import stable_digest, stable_unit_interval
+from splitproof.hashing import (
+    HASH_ALGORITHM,
+    HASH_VERSION,
+    data_fingerprint_v1,
+    stable_digest,
+    stable_unit_interval,
+)
 from splitproof.io import load_assignments, load_records, save_assignments
-from splitproof.manifest import load_manifest, manifest_checksum, save_manifest
+from splitproof.manifest import (
+    SCHEMA_VERSION,
+    load_manifest,
+    manifest_checksum,
+    save_manifest,
+)
 from splitproof.models import SplitManifest
 
 
@@ -45,6 +56,7 @@ def test_manifest_round_trip_and_dataset_verification(tmp_path) -> None:  # type
     save_manifest(manifest, path)
     restored = load_manifest(path)
     assert restored == manifest
+    assert restored.schema_version == "2"
     assert verify_manifest(restored, reversed(rows)) == ()
     assert verify_manifest(restored, [*rows[:-1], Record("changed")]) == (
         "dataset fingerprint mismatch",
@@ -249,3 +261,101 @@ def test_manifest_json_rejects_non_finite_and_duplicate_keys(tmp_path) -> None: 
     path.write_text('{"ratio":NaN}', encoding="utf-8")
     with pytest.raises(ValueError, match="non-finite"):
         load_manifest(path)
+
+
+def test_schema_v2_fingerprint_covers_labels_and_weights() -> None:
+    rows = [Record("r", labels=("a", "b"), weight=2, group_weight=3)]
+    manifest = create_manifest(
+        rows,
+        [Assignment("r", "train")],
+        algorithm="group",
+        algorithm_version="3",
+        seed="v2",
+        ratios={"train": 1.0},
+    )
+    assert SCHEMA_VERSION == "2"
+    assert verify_manifest(manifest, rows) == ()
+    assert "dataset fingerprint mismatch" in verify_manifest(
+        manifest, [Record("r", labels=("a", "changed"), weight=2, group_weight=3)]
+    )
+    assert "dataset fingerprint mismatch" in verify_manifest(
+        manifest, [Record("r", labels=("a", "b"), weight=4, group_weight=3)]
+    )
+    assert "dataset fingerprint mismatch" in verify_manifest(
+        manifest, [Record("r", labels=("a", "b"), weight=2, group_weight=5)]
+    )
+
+
+def test_schema_v1_manifest_remains_readable_and_verifiable() -> None:
+    rows = [Record("a", group="g", label="x"), Record("b", group="g", label="y")]
+    assignments = (Assignment("a", "train"), Assignment("b", "train"))
+    legacy = SplitManifest(
+        schema_version="1",
+        algorithm="group",
+        algorithm_version="2",
+        seed="legacy",
+        created_at="2026-01-01T00:00:00+00:00",
+        data_fingerprint=data_fingerprint_v1(rows),
+        ratios={"train": 1.0},
+        assignments=assignments,
+        metadata={"hash_algorithm": HASH_ALGORITHM, "hash_version": HASH_VERSION},
+    )
+    legacy = replace(legacy, checksum=manifest_checksum(legacy))
+    assert verify_manifest(legacy, rows) == ()
+
+
+def test_schema_v2_requires_fingerprint_version_metadata() -> None:
+    rows = [Record("r")]
+    manifest = create_manifest(
+        rows,
+        [Assignment("r", "train")],
+        algorithm="group",
+        algorithm_version="3",
+        seed=0,
+        ratios={"train": 1.0},
+    )
+    changed = replace(
+        manifest,
+        metadata={"hash_algorithm": HASH_ALGORITHM, "hash_version": HASH_VERSION},
+    )
+    changed = replace(changed, checksum=manifest_checksum(changed))
+    assert "unsupported manifest fingerprint version" in verify_manifest(changed, rows)
+
+
+def test_manifest_rejects_unknown_algorithms_and_validates_fold_semantics() -> None:
+    rows = [Record("a", group="g1"), Record("b", group="g2")]
+    with pytest.raises(ConstraintError, match="unsupported assignment algorithm"):
+        create_manifest(
+            rows,
+            [Assignment("a", "train"), Assignment("b", "train")],
+            algorithm="custom",
+            algorithm_version="3",
+            seed=0,
+            ratios={"train": 1.0},
+        )
+    with pytest.raises(ConstraintError, match="non-k-fold"):
+        create_manifest(
+            rows,
+            [Assignment("a", "train", 0), Assignment("b", "train", 0)],
+            algorithm="group",
+            algorithm_version="3",
+            seed=0,
+            ratios={"train": 1.0},
+        )
+    fold_assignments = (Assignment("a", "fold-0", 0), Assignment("b", "fold-1", 1))
+    manifest = create_manifest(
+        rows,
+        fold_assignments,
+        algorithm="group-kfold",
+        algorithm_version="3",
+        seed=0,
+        ratios={"fold-0": 0.5, "fold-1": 0.5},
+        metadata={"folds": 2},
+    )
+    assert verify_manifest(manifest, rows) == ()
+    tampered = replace(
+        manifest,
+        assignments=(Assignment("a", "fold-0", 1), Assignment("b", "fold-1", 1)),
+    )
+    tampered = replace(tampered, checksum=manifest_checksum(tampered))
+    assert "k-fold assignment fold fields are inconsistent" in verify_manifest(tampered, rows)

@@ -34,8 +34,8 @@ def stable_unit_interval(*parts: str | None, seed: str, domain: str) -> float:
     return (integer >> 75) / (1 << 53)
 
 
-def data_fingerprint(records: Iterable[Record]) -> str:
-    """Fingerprint identity, group, and label independent of input order."""
+def data_fingerprint_v1(records: Iterable[Record]) -> str:
+    """Return the schema-v1 identity/group/single-label fingerprint."""
     rows = sorted(
         ((record.id, record.group, record.label) for record in records),
         key=canonical_key,
@@ -44,4 +44,26 @@ def data_fingerprint(records: Iterable[Record]) -> str:
         json.dumps(rows, ensure_ascii=False, separators=(",", ":")),
         seed="",
         domain="dataset",
+    )
+
+
+def data_fingerprint(records: Iterable[Record]) -> str:
+    """Fingerprint v2 split inputs, including labels and both weight types."""
+    rows = sorted(
+        (
+            (
+                record.id,
+                record.group,
+                record.all_labels,
+                record.weight,
+                record.group_weight,
+            )
+            for record in records
+        ),
+        key=lambda row: json.dumps(row, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+    )
+    return stable_digest(
+        json.dumps(rows, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+        seed="",
+        domain="dataset-v2",
     )

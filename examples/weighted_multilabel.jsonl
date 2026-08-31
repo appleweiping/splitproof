@@ -1,0 +1,6 @@
+{"id":"ticket-001-user","group":"ticket-001","label":["billing","urgent"],"weight":2.0,"group_weight":3.0,"text":"I was charged twice."}
+{"id":"ticket-001-agent","group":"ticket-001","label":["billing","resolved"],"weight":1.0,"group_weight":3.0,"text":"The duplicate charge was refunded."}
+{"id":"ticket-002-user","group":"ticket-002","label":["delivery","urgent"],"weight":1.5,"group_weight":2.0,"text":"My delivery is late."}
+{"id":"ticket-002-agent","group":"ticket-002","label":["delivery"],"weight":1.0,"group_weight":2.0,"text":"The parcel arrives tomorrow."}
+{"id":"ticket-003-user","group":"ticket-003","label":["account","security"],"weight":3.0,"group_weight":4.0,"text":"I cannot sign in after a password alert."}
+{"id":"ticket-003-agent","group":"ticket-003","label":["account","resolved"],"weight":1.0,"group_weight":4.0,"text":"The account was recovered securely."}
