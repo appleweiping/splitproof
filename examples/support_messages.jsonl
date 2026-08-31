@@ -1,0 +1,10 @@
+{"id":"m01","group":"thread-01","label":"question","text":"Where is my order?"}
+{"id":"m02","group":"thread-01","label":"answer","text":"It ships today."}
+{"id":"m03","group":"thread-02","label":"question","text":"Can I update my address?"}
+{"id":"m04","group":"thread-02","label":"answer","text":"Yes, before dispatch."}
+{"id":"m05","group":"thread-03","label":"question","text":"Is express delivery available?"}
+{"id":"m06","group":"thread-03","label":"answer","text":"Select it at checkout."}
+{"id":"m07","group":"thread-04","label":"question","text":"How do I reset my password?"}
+{"id":"m08","group":"thread-04","label":"answer","text":"Use the reset link."}
+{"id":"m09","group":"thread-05","label":"question","text":"Can I download an invoice?"}
+{"id":"m10","group":"thread-05","label":"answer","text":"Invoices are under billing."}
