@@ -202,6 +202,20 @@ def test_verify_reports_duplicate_ids_with_different_optional_fields() -> None:
         lambda value: value.pop("checksum"),
         lambda value: value.update(ratios={"train": "1.0"}),
         lambda value: value.update(assignments=[{"record_id": "r", "split": "train"}]),
+        lambda value: value.update(ratios=[]),
+        lambda value: value.update(assignments={}),
+        lambda value: value.update(metadata=[]),
+        lambda value: value.update(algorithm=""),
+        lambda value: value.update(checksum=""),
+        lambda value: value.update(assignments=["not-an-object"]),
+        lambda value: value.update(assignments=[{"record_id": "", "split": "train", "fold": None}]),
+        lambda value: value.update(assignments=[{"record_id": "r", "split": "", "fold": None}]),
+        lambda value: value.update(assignments=[{"record_id": "r", "split": "train", "fold": -1}]),
+        # bool is a subclass of int, so an unguarded isinstance check would read
+        # true as fold 1 instead of rejecting it.
+        lambda value: value.update(
+            assignments=[{"record_id": "r", "split": "train", "fold": True}]
+        ),
     ],
 )
 def test_manifest_loader_rejects_unknown_missing_and_malformed_fields(tmp_path, mutation) -> None:  # type: ignore[no-untyped-def]
@@ -359,3 +373,96 @@ def test_manifest_rejects_unknown_algorithms_and_validates_fold_semantics() -> N
     )
     tampered = replace(tampered, checksum=manifest_checksum(tampered))
     assert "k-fold assignment fold fields are inconsistent" in verify_manifest(tampered, rows)
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ('{"id": "a"}', "JSON dataset root must be an array"),
+        ("[1]", "record 1 must be a JSON object"),
+        ('[{"id": "a", "label": "x"}, "not-an-object"]', "record 2 must be a JSON object"),
+    ],
+)
+def test_record_loader_rejects_non_object_roots_and_rows(tmp_path, text: str, message: str) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "records.json"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        load_records(path)
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        ("[]", "must be a JSON object"),
+        ('{"id": "a", "split": "train"}', "has invalid fields"),
+        ('{"id": "a", "split": "train", "fold": null, "extra": 1}', "has invalid fields"),
+        ('{"id": "", "split": "train", "fold": null}', "has an invalid id"),
+        ('{"id": "   ", "split": "train", "fold": null}', "has an invalid id"),
+        ('{"id": 1, "split": "train", "fold": null}', "has an invalid id"),
+        ('{"id": "a", "split": "", "fold": null}', "has an invalid split"),
+        ('{"id": "a", "split": 2, "fold": null}', "has an invalid split"),
+        ('{"id": "a", "split": "train", "fold": -1}', "has an invalid fold"),
+        ('{"id": "a", "split": "train", "fold": "0"}', "has an invalid fold"),
+        # bool is a subclass of int, so it must be rejected explicitly rather
+        # than sliding through the isinstance(fold, int) check as fold 1.
+        ('{"id": "a", "split": "train", "fold": true}', "has an invalid fold"),
+    ],
+)
+def test_assignment_loader_rejects_malformed_lines(tmp_path, line: str, message: str) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "assignments.jsonl"
+    path.write_text(line + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        load_assignments(path)
+
+
+def test_loaders_skip_blank_lines(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    records = tmp_path / "records.jsonl"
+    records.write_text(
+        '\n{"id": "a", "label": "x"}\n   \n{"id": "b", "label": "y"}\n\n', encoding="utf-8"
+    )
+    assert len(load_records(records)) == 2
+
+    assignments = tmp_path / "assignments.jsonl"
+    assignments.write_text('\n{"id": "a", "split": "train", "fold": null}\n  \n', encoding="utf-8")
+    assert load_assignments(assignments) == (Assignment("a", "train"),)
+
+
+@pytest.mark.parametrize(
+    ("record", "message"),
+    [
+        ({"label": "x"}, "missing required field 'id'"),
+        ({"id": None}, "record id must not be null"),
+        ({"id": "a", "label": ""}, "record label must be a non-empty string or null"),
+        ({"id": "a", "label": ["x", ""]}, "record labels values must not be empty"),
+        ({"id": "a", "label": ["x", "x"]}, "record labels must not contain duplicate values"),
+    ],
+)
+def test_record_loader_rejects_invalid_identifiers_and_labels(
+    tmp_path, record: dict, message: str
+) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "records.json"
+    path.write_text(json.dumps([record]), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        load_records(path)
+
+
+def test_record_loader_accepts_absent_labels_and_numeric_scalars(
+    tmp_path,
+) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "records.json"
+    path.write_text(
+        json.dumps(
+            [
+                {"id": "a"},
+                {"id": 2, "group": None, "label": None},
+                {"id": "c", "label": [1.5, 3]},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    rows = load_records(path)
+    assert [row.id for row in rows] == ["a", "2", "c"]
+    # A record without a label field carries no labels at all.
+    assert rows[0].labels == ()
+    # Finite floats and ints are rendered as stable scalar strings, then sorted.
+    assert rows[2].labels == ("1.5", "3")
