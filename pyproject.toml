@@ -35,6 +35,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = [
+  "bandit>=1.7",
   "build>=1.2",
   "mypy>=1.11",
   "pytest>=8.3",
@@ -96,3 +97,11 @@ python_version = "3.10"
 strict = true
 files = ["src"]
 warn_unreachable = true
+
+[tool.bandit]
+targets = ["src"]
+# B101: every flagged assert narrows an `X | None` returned by a helper called
+# with `allow_none=False` (or by a branch that already excluded `None`). The
+# helpers raise on bad input themselves, so these asserts carry no validation and
+# stripping them under `python -O` changes nothing.
+skips = ["B101"]
