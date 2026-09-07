@@ -11,6 +11,7 @@ from splitproof import (
     balanced_group_split,
     create_manifest,
     hash_split,
+    migrate_manifest,
     verify_manifest,
 )
 from splitproof.constraints import ConstraintError
@@ -316,6 +317,29 @@ def test_schema_v1_manifest_remains_readable_and_verifiable() -> None:
     )
     legacy = replace(legacy, checksum=manifest_checksum(legacy))
     assert verify_manifest(legacy, rows) == ()
+
+
+def test_schema_v1_manifest_migrates_only_after_verification() -> None:
+    rows = [Record("a", group="g", label="x"), Record("b", group="g", label="y")]
+    assignments = (Assignment("a", "train"), Assignment("b", "train"))
+    legacy = SplitManifest(
+        schema_version="1",
+        algorithm="group",
+        algorithm_version="2",
+        seed="legacy",
+        created_at="2026-01-01T00:00:00+00:00",
+        data_fingerprint=data_fingerprint_v1(rows),
+        ratios={"train": 1.0},
+        assignments=assignments,
+        metadata={"hash_algorithm": HASH_ALGORITHM, "hash_version": HASH_VERSION},
+    )
+    legacy = replace(legacy, checksum=manifest_checksum(legacy))
+    migrated = migrate_manifest(legacy, rows)
+    assert migrated.schema_version == "2"
+    assert migrated.metadata["fingerprint_version"] == "2"
+    assert verify_manifest(migrated, rows) == ()
+    with pytest.raises(ConstraintError, match="unverified"):
+        migrate_manifest(legacy, [Record("a")])
 
 
 def test_schema_v2_requires_fingerprint_version_metadata() -> None:

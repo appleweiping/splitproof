@@ -254,6 +254,10 @@ derive IDs from content or record a separate content checksum in your data pipel
 Legacy users should follow the explicit [schema-v1 migration guide](docs/migration-v2.md) rather
 than replacing a published manifest in place.
 
+The executable path is `splitproof migrate-manifest`; it verifies the legacy
+source before writing a separate schema-v2 manifest. See
+[manifest migration](docs/manifest-migration.md).
+
 ## Constraints and honest limitations
 
 - Indivisible groups can make exact ratios or exact per-label proportions mathematically

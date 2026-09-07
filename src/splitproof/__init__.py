@@ -24,7 +24,13 @@ from .leakage import (
     audit_leakage,
     audit_near_duplicates,
 )
-from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
+from .manifest import (
+    create_manifest,
+    load_manifest,
+    migrate_manifest,
+    save_manifest,
+    verify_manifest,
+)
 from .materialize import partition_records, write_materialized
 from .models import Assignment, Record, SplitDiagnostics, SplitManifest
 from .nested import (
@@ -85,6 +91,7 @@ __all__ = [
     "holdout_stability_report",
     "iter_records",
     "load_manifest",
+    "migrate_manifest",
     "nested_group_kfold",
     "partition_records",
     "purged_holdout",

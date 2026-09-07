@@ -147,6 +147,35 @@ def load_manifest(path: str | Path) -> SplitManifest:
     return replace(manifest, ratios=validate_ratios(manifest.ratios))
 
 
+def migrate_manifest(manifest: SplitManifest, records: Iterable[Record]) -> SplitManifest:
+    """Migrate a verified schema-v1 manifest to schema v2.
+
+    Migration is intentionally data-bound: the v2 fingerprint includes all
+    normalized labels and weights, so callers must provide the source records
+    and the old manifest must verify against them first. Assignment semantics,
+    timestamps, ratios, and user metadata are preserved; only versioned hash
+    metadata, fingerprint, and checksum are rewritten.
+    """
+
+    if manifest.schema_version != "1":
+        raise ConstraintError("only schema version '1' manifests can be migrated")
+    rows = tuple(records)
+    errors = verify_manifest(manifest, rows)
+    if errors:
+        raise ConstraintError("cannot migrate an unverified manifest: " + "; ".join(errors))
+    metadata = dict(manifest.metadata)
+    metadata["hash_algorithm"] = HASH_ALGORITHM
+    metadata["hash_version"] = HASH_VERSION
+    metadata["fingerprint_version"] = FINGERPRINT_VERSION
+    migrated = replace(
+        manifest,
+        schema_version=SCHEMA_VERSION,
+        data_fingerprint=data_fingerprint(rows),
+        metadata=metadata,
+    )
+    return replace(migrated, checksum=manifest_checksum(migrated))
+
+
 def verify_manifest(
     manifest: SplitManifest,
     records: Iterable[Record],

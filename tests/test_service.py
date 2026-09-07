@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 import threading
 import urllib.request
+from dataclasses import replace
 
 import pytest
 
 from splitproof import SplitService, create_server
+from splitproof.hashing import HASH_ALGORITHM, HASH_VERSION, data_fingerprint_v1
+from splitproof.manifest import manifest_checksum, save_manifest
+from splitproof.models import Assignment, SplitManifest
 
 
 def test_split_service_dispatch_and_http() -> None:
@@ -90,6 +94,35 @@ def test_split_service_repeat_holdout_reports_stability() -> None:
     assert response["splits"] == ["test", "train"]
     assert set(response["allocation_rates"]) == {str(index) for index in range(8)}
     assert len(response["assignments"]) == 3
+
+
+def test_split_service_migrates_a_verified_v1_manifest(tmp_path) -> None:
+    records = [{"id": "a", "group": "g"}, {"id": "b", "group": "g"}]
+    rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))
+    legacy = SplitManifest(
+        schema_version="1",
+        algorithm="group",
+        algorithm_version="2",
+        seed="legacy",
+        created_at="2026-01-01T00:00:00+00:00",
+        data_fingerprint=data_fingerprint_v1(rows),
+        ratios={"train": 1.0},
+        assignments=(Assignment("a", "train"), Assignment("b", "train")),
+        metadata={"hash_algorithm": HASH_ALGORITHM, "hash_version": HASH_VERSION},
+    )
+    legacy = replace(legacy, checksum=manifest_checksum(legacy))
+    path = tmp_path / "legacy.json"
+    save_manifest(legacy, path)
+    response = SplitService().dispatch(
+        {"operation": "migrate_manifest", "records": records, "manifest": str(path)}
+    )
+    assert response["manifest"]["schema_version"] == "2"
+
+
+def _write_records(tmp_path, records):  # type: ignore[no-untyped-def]
+    path = tmp_path / "records.jsonl"
+    path.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")
+    return path
 
 
 @pytest.mark.parametrize(

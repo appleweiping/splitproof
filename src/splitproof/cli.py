@@ -23,7 +23,13 @@ from .diagnostics import diagnose
 from .io import iter_records, load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
 from .leakage import audit_leakage, audit_near_duplicates
-from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
+from .manifest import (
+    create_manifest,
+    load_manifest,
+    migrate_manifest,
+    save_manifest,
+    verify_manifest,
+)
 from .materialize import write_materialized
 from .repeat import (
     holdout_stability_report,
@@ -131,6 +137,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="also compare an external assignments JSONL file with the manifest",
     )
+    migrate = commands.add_parser(
+        "migrate-manifest", help="migrate a verified schema-v1 manifest to schema v2"
+    )
+    _fields(migrate)
+    migrate.add_argument("--manifest", type=Path, required=True)
+    migrate.add_argument("--output", type=Path, required=True)
 
     inspect = commands.add_parser("inspect", help="inspect manifest diagnostics")
     _fields(inspect)
@@ -342,6 +354,24 @@ def _run_verify(args: argparse.Namespace) -> int:
     external = load_assignments(args.assignments) if args.assignments else None
     errors = verify_manifest(load_manifest(args.manifest), _load(args), external)
     return _print_verification(errors)
+
+
+def _run_migrate(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, manifest=args.manifest, output=args.output)
+    migrated = migrate_manifest(load_manifest(args.manifest), _load(args))
+    save_manifest(migrated, args.output)
+    print(
+        json.dumps(
+            {
+                "schema_version": migrated.schema_version,
+                "data_fingerprint": migrated.data_fingerprint,
+                "checksum": migrated.checksum,
+                "output": str(args.output),
+            },
+            sort_keys=True,
+        )
+    )
+    return 0
 
 
 def _print_verification(errors: tuple[str, ...]) -> int:
@@ -592,6 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "split": _run_split,
         "kfold": _run_kfold,
         "verify": _run_verify,
+        "migrate-manifest": _run_migrate,
         "inspect": _run_inspect,
         "temporal-kfold": _run_temporal,
         "repeat": _run_repeat,

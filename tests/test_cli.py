@@ -101,6 +101,60 @@ def test_verify_detects_changed_data(tmp_path, capsys) -> None:  # type: ignore[
     assert "fingerprint mismatch" in capsys.readouterr().err
 
 
+def test_migrate_manifest_cli_requires_verified_v1_and_writes_v2(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
+    data = tmp_path / "data.jsonl"
+    assignments = tmp_path / "assignments.jsonl"
+    manifest = tmp_path / "manifest.json"
+    write_dataset(data)
+    assert (
+        main(
+            [
+                "split",
+                str(data),
+                "--algorithm",
+                "hash",
+                "--ratios",
+                "train=0.5,test=0.5",
+                "--assignments",
+                str(assignments),
+                "--manifest",
+                str(manifest),
+            ]
+        )
+        == 0
+    )
+    from dataclasses import replace
+
+    from splitproof.hashing import data_fingerprint_v1
+    from splitproof.manifest import load_manifest, manifest_checksum, save_manifest
+
+    current = load_manifest(manifest)
+    legacy = replace(
+        current,
+        schema_version="1",
+        data_fingerprint=data_fingerprint_v1(tuple(__import__("splitproof").io.load_records(data))),
+        metadata={"hash_algorithm": "blake2b-128", "hash_version": "1"},
+    )
+    legacy = replace(legacy, checksum=manifest_checksum(legacy))
+    save_manifest(legacy, manifest)
+    output = tmp_path / "migrated.json"
+    assert (
+        main(
+            [
+                "migrate-manifest",
+                str(data),
+                "--manifest",
+                str(manifest),
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+    assert json.loads(output.read_text(encoding="utf-8"))["schema_version"] == "2"
+    assert "schema_version" in capsys.readouterr().out
+
+
 def test_verify_external_assignments_and_inspect_integrity(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
     data = tmp_path / "data.jsonl"
     assignments = tmp_path / "assignments.jsonl"

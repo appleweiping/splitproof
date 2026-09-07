@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Add data-bound `migrate-manifest` CLI and service operation for verified
+  schema-v1 to schema-v2 upgrades.
+
 - Add deterministic cross-split leakage auditing with bounded, redacted reports
   and a `leakage-audit` CLI.
 - Add bounded token-shingle near-duplicate leakage audits and the

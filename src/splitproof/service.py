@@ -11,6 +11,7 @@ from typing import Any
 
 from .assigners import balanced_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
+from .manifest import load_manifest, migrate_manifest
 from .models import Assignment, Record
 from .repeat import holdout_stability_report, repeated_group_holdout
 
@@ -91,7 +92,13 @@ class SplitService:
                     [asdict(item) for item in repetition] for repetition in repetitions
                 ],
             }
-        raise ValueError("operation must be split, diagnose, or repeat_holdout")
+        if operation == "migrate_manifest":
+            manifest_path = request.get("manifest")
+            if not isinstance(manifest_path, str) or not manifest_path.strip():
+                raise ValueError("manifest must be a non-empty path string")
+            migrated = migrate_manifest(load_manifest(manifest_path), records)
+            return {"operation": operation, "manifest": migrated.to_dict()}
+        raise ValueError("operation must be split, diagnose, repeat_holdout, or migrate_manifest")
 
 
 def create_server(
