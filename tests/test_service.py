@@ -4,6 +4,8 @@ import json
 import threading
 import urllib.request
 
+import pytest
+
 from splitproof import SplitService, create_server
 
 
@@ -62,3 +64,54 @@ def test_split_service_diagnoses_and_rejects_algorithm() -> None:
         assert "algorithm" in str(error)
     else:  # pragma: no cover
         raise AssertionError("invalid algorithm was accepted")
+
+
+def test_split_service_repeat_holdout_reports_stability() -> None:
+    service = SplitService()
+    response = service.dispatch(
+        {
+            "operation": "repeat_holdout",
+            "records": [
+                {
+                    "id": str(index),
+                    "group": f"g{index // 2}",
+                    "label": "a" if index % 2 else "b",
+                }
+                for index in range(8)
+            ],
+            "ratios": {"train": 0.75, "test": 0.25},
+            "repeats": 3,
+            "seed": "service",
+            "stratified": True,
+            "minimum_counts": {"train": 1},
+        }
+    )
+    assert response["repeats"] == 3
+    assert response["splits"] == ["test", "train"]
+    assert set(response["allocation_rates"]) == {str(index) for index in range(8)}
+    assert len(response["assignments"]) == 3
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"operation": "repeat_holdout", "records": [], "ratios": []},
+        {"operation": "repeat_holdout", "records": [], "ratios": {}, "repeats": True},
+        {"operation": "repeat_holdout", "records": [], "ratios": {}, "stratified": 1},
+        {
+            "operation": "repeat_holdout",
+            "records": [],
+            "ratios": {},
+            "minimum_counts": {"train": True},
+        },
+        {"operation": "unknown", "records": []},
+    ],
+)
+def test_split_service_repeat_holdout_validates_request(payload: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        SplitService().dispatch(payload)
+
+
+def test_split_service_rejects_invalid_port() -> None:
+    with pytest.raises(ValueError, match="port"):
+        create_server(port=65536)

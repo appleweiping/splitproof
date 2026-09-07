@@ -12,6 +12,7 @@ from typing import Any
 from .assigners import balanced_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
 from .models import Assignment, Record
+from .repeat import holdout_stability_report, repeated_group_holdout
 
 
 class SplitService:
@@ -49,7 +50,48 @@ class SplitService:
             ratios = request.get("ratios")
             report = diagnose(records, assignments, ratios if isinstance(ratios, Mapping) else None)
             return {"operation": operation, "diagnostics": asdict(report)}
-        raise ValueError("operation must be split or diagnose")
+        if operation == "repeat_holdout":
+            ratios = request.get("ratios")
+            if not isinstance(ratios, Mapping):
+                raise ValueError("ratios must be an object")
+            repeats = request.get("repeats", 3)
+            if isinstance(repeats, bool) or not isinstance(repeats, int):
+                raise ValueError("repeats must be an integer")
+            seed = request.get("seed", "0")
+            stratified = request.get("stratified", False)
+            if not isinstance(stratified, bool):
+                raise ValueError("stratified must be a boolean")
+            minimum_counts = request.get("minimum_counts")
+            if minimum_counts is not None and (
+                not isinstance(minimum_counts, Mapping)
+                or not all(
+                    isinstance(name, str) and isinstance(count, int) and not isinstance(count, bool)
+                    for name, count in minimum_counts.items()
+                )
+            ):
+                raise ValueError("minimum_counts must map split names to integer counts")
+            repetitions = repeated_group_holdout(
+                records,
+                ratios,
+                repeats,
+                seed=seed,
+                stratified=stratified,
+                minimum_counts=minimum_counts,
+            )
+            holdout_report = holdout_stability_report(repetitions)
+            return {
+                "operation": operation,
+                "repeats": holdout_report.repeats,
+                "splits": list(holdout_report.splits),
+                "allocation_rates": {
+                    record_id: dict(rates)
+                    for record_id, rates in holdout_report.allocation_rates.items()
+                },
+                "assignments": [
+                    [asdict(item) for item in repetition] for repetition in repetitions
+                ],
+            }
+        raise ValueError("operation must be split, diagnose, or repeat_holdout")
 
 
 def create_server(

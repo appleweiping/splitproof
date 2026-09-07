@@ -14,4 +14,7 @@ server.serve_forever()
 
 The endpoint reuses the same group-aware and hash-based assigners as the public
 library. Bind it behind authentication before exposing it beyond a trusted
-machine.
+machine. In addition to `split` and `diagnose`, the `repeat_holdout`
+operation returns group-safe repeated assignments and per-record allocation
+rates, using the same deterministic seed and minimum-count controls as the
+`repeat-holdout` CLI.
