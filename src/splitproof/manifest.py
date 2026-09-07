@@ -23,7 +23,7 @@ SCHEMA_VERSION = "2"
 SUPPORTED_SCHEMA_VERSIONS = frozenset({"1", "2"})
 FINGERPRINT_VERSION = "2"
 SUPPORTED_ALGORITHMS = frozenset(
-    {"hash", "group", "stratified-group", "group-kfold", "stratified-group-kfold"}
+    {"hash", "group", "stratified-group", "exact-group", "group-kfold", "stratified-group-kfold"}
 )
 SUPPORTED_ALGORITHM_VERSIONS = frozenset({"1", "2", "3"})
 RESERVED_METADATA = frozenset({"hash_algorithm", "hash_version", "fingerprint_version"})

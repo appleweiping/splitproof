@@ -7,6 +7,7 @@ import pytest
 from splitproof import (
     Record,
     balanced_group_split,
+    exact_group_split,
     hash_split,
     stratified_group_split,
 )
@@ -120,3 +121,31 @@ def test_direct_records_require_stable_string_fields() -> None:
         Record("")
     with pytest.raises(ValueError, match="group"):
         Record("id", group=[])  # type: ignore[arg-type]
+
+
+def test_exact_group_split_is_deterministic_and_bounded() -> None:
+    rows = [
+        Record(f"{group}-{index}", group=group) for group in ("a", "b", "c") for index in range(2)
+    ]
+    forward = exact_group_split(rows, {"train": 0.5, "test": 0.5}, seed="fixed")
+    backward = exact_group_split(reversed(rows), {"train": 0.5, "test": 0.5}, seed="fixed")
+    assert forward == backward
+    assert {item.split for item in forward} == {"train", "test"}
+    with pytest.raises(ValueError, match="at most 2 groups"):
+        exact_group_split(rows, {"train": 0.5, "test": 0.5}, max_groups=2)
+
+
+def test_exact_group_split_honors_minimum_counts_and_labels() -> None:
+    rows = [
+        Record(f"{label}-{index}", group=f"g{index}", label=label)
+        for index, label in enumerate(("a", "b", "a", "b"))
+    ]
+    result = exact_group_split(
+        rows,
+        {"train": 0.5, "test": 0.5},
+        stratified=True,
+        minimum_counts={"train": 1, "test": 1},
+    )
+    assert len(result) == len(rows)
+    with pytest.raises(ValueError, match="max_groups"):
+        exact_group_split(rows, {"train": 1.0}, max_groups=0)

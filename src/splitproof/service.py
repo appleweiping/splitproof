@@ -9,7 +9,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
-from .assigners import balanced_group_split, hash_split, stratified_group_split
+from .assigners import balanced_group_split, exact_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
 from .manifest import load_manifest, migrate_manifest
 from .models import Assignment, Record
@@ -38,10 +38,15 @@ class SplitService:
                 assignments = hash_split(records, ratios, seed=seed)
             elif algorithm == "stratified":
                 assignments = stratified_group_split(records, ratios, seed=seed)
+            elif algorithm == "exact":
+                max_groups = request.get("max_groups", 12)
+                if isinstance(max_groups, bool) or not isinstance(max_groups, int):
+                    raise ValueError("max_groups must be an integer")
+                assignments = exact_group_split(records, ratios, seed=seed, max_groups=max_groups)
             elif algorithm == "balanced":
                 assignments = balanced_group_split(records, ratios, seed=seed)
             else:
-                raise ValueError("algorithm must be hash, balanced, or stratified")
+                raise ValueError("algorithm must be hash, balanced, stratified, or exact")
             return {"operation": operation, "assignments": [asdict(item) for item in assignments]}
         if operation == "diagnose":
             assignments_value = request.get("assignments")

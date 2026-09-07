@@ -96,6 +96,23 @@ def test_split_service_repeat_holdout_reports_stability() -> None:
     assert len(response["assignments"]) == 3
 
 
+def test_split_service_dispatches_exact_group_algorithm() -> None:
+    response = SplitService().dispatch(
+        {
+            "operation": "split",
+            "records": [
+                {"id": "a", "group": "one"},
+                {"id": "b", "group": "two"},
+                {"id": "c", "group": "three"},
+            ],
+            "ratios": {"train": 0.5, "test": 0.5},
+            "algorithm": "exact",
+            "max_groups": 3,
+        }
+    )
+    assert {item["split"] for item in response["assignments"]} == {"train", "test"}
+
+
 def test_split_service_migrates_a_verified_v1_manifest(tmp_path) -> None:
     records = [{"id": "a", "group": "g"}, {"id": "b", "group": "g"}]
     rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))

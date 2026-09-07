@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from itertools import product
 
 from .constraints import (
+    ConstraintError,
     require_labels,
     validate_minimum_counts,
     validate_ratios,
@@ -326,3 +328,57 @@ def stratified_group_split(
     assignments = tuple(sorted(result, key=lambda item: item.record_id))
     validate_minimum_counts(assignments, minimum_counts)
     return assignments
+
+
+def exact_group_split(
+    records: Iterable[Record],
+    ratios: Mapping[str, float],
+    *,
+    seed: str | int = "0",
+    stratified: bool = False,
+    minimum_counts: Mapping[str, int] | None = None,
+    max_groups: int = 12,
+) -> tuple[Assignment, ...]:
+    """Find the globally best group assignment for a small dataset.
+
+    This exhaustive solver is intentionally opt-in and bounded. It enumerates
+    every split assignment for at most ``max_groups`` indivisible groups,
+    scores each assignment with the same objective as the greedy solver, and
+    resolves equal scores by a stable digest. Larger datasets fail loudly
+    instead of silently turning an exact request into a heuristic.
+    """
+
+    if isinstance(max_groups, bool) or not isinstance(max_groups, int) or max_groups < 1:
+        raise ValueError("max_groups must be a positive integer")
+    materialized = validate_records(records)
+    if stratified:
+        require_labels(materialized)
+    checked = validate_ratios(ratios)
+    groups = _groups(materialized)
+    if len(groups) > max_groups:
+        raise ValueError(f"exact group optimization supports at most {max_groups} groups")
+    splits = tuple(checked)
+    best: tuple[float, str, dict[str, str]] | None = None
+    for choices in product(splits, repeat=len(groups)):
+        destinations = {group.key: split for group, split in zip(groups, choices, strict=True)}
+        if len(groups) >= len(splits) and set(destinations.values()) != set(splits):
+            continue
+        score = _assignment_score(groups, destinations, checked, stratified=stratified)
+        tie = stable_digest(
+            *[f"{group.key}={destinations[group.key]}" for group in groups],
+            seed=str(seed),
+            domain="exact-group-v1",
+        )
+        candidate = (score, tie, destinations)
+        if best is None or candidate[:2] < best[:2]:
+            best = candidate
+    if best is None:
+        raise ConstraintError("no exact group assignment satisfies the split constraints")
+    result = tuple(
+        sorted(
+            (Assignment(item.id, best[2][group.key]) for group in groups for item in group.records),
+            key=lambda item: item.record_id,
+        )
+    )
+    validate_minimum_counts(result, minimum_counts)
+    return result

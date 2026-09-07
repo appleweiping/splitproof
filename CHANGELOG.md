@@ -4,6 +4,9 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Add bounded exhaustive `exact_group_split` optimization for small grouped
+  datasets, exposed through the CLI and local service.
+
 - Add data-bound `migrate-manifest` CLI and service operation for verified
   schema-v1 to schema-v2 upgrades.
 

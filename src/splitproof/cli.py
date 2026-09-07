@@ -15,6 +15,7 @@ from . import __version__
 from .assigners import (
     ALGORITHM_VERSION,
     balanced_group_split,
+    exact_group_split,
     hash_split,
     stratified_group_split,
 )
@@ -104,7 +105,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     split.add_argument(
         "--algorithm",
-        choices=("hash", "group", "stratified-group"),
+        choices=("hash", "group", "stratified-group", "exact-group"),
         default="stratified-group",
     )
     split.add_argument("--seed", default="0")
@@ -114,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-local-iterations",
         type=int,
         help="local-improvement limit for group algorithms; default is deterministic auto",
+    )
+    split.add_argument(
+        "--max-groups",
+        type=int,
+        default=12,
+        help="exact-group search limit (default: 12)",
     )
 
     kfold = commands.add_parser("kfold", help="create group-aware k-fold assignments")
@@ -267,14 +274,27 @@ def _run_split(args: argparse.Namespace) -> int:
         assignments = hash_split(records, args.ratios, seed=args.seed)
         optimizer = "record-hash-v1"
     else:
-        algorithm = balanced_group_split if args.algorithm == "group" else stratified_group_split
-        assignments = algorithm(
-            records,
-            args.ratios,
-            seed=args.seed,
-            max_local_iterations=args.max_local_iterations,
-        )
-        optimizer = "greedy-local-v3"
+        if args.algorithm == "exact-group":
+            if args.max_local_iterations is not None:
+                raise ValueError("--max-local-iterations is not valid for exact-group")
+            assignments = exact_group_split(
+                records,
+                args.ratios,
+                seed=args.seed,
+                max_groups=args.max_groups,
+            )
+            optimizer = "exhaustive-v1"
+        else:
+            algorithm = (
+                balanced_group_split if args.algorithm == "group" else stratified_group_split
+            )
+            assignments = algorithm(
+                records,
+                args.ratios,
+                seed=args.seed,
+                max_local_iterations=args.max_local_iterations,
+            )
+            optimizer = "greedy-local-v3"
     manifest = create_manifest(
         records,
         assignments,

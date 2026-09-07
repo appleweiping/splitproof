@@ -1,6 +1,6 @@
 """SplitProof: reproducible, group-aware dataset partitioning."""
 
-from .assigners import balanced_group_split, hash_split, stratified_group_split
+from .assigners import balanced_group_split, exact_group_split, hash_split, stratified_group_split
 from .comparison import ManifestComparison, compare_manifests
 from .diagnostics import diagnose
 from .evaluation import (
@@ -86,6 +86,7 @@ __all__ = [
     "evaluate_nested",
     "evaluate_nested_candidates",
     "evaluate_repeated_kfold",
+    "exact_group_split",
     "hash_split",
     "hash_split_stream",
     "holdout_stability_report",
