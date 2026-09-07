@@ -1,6 +1,6 @@
 import pytest
 
-from splitproof import Record, nested_group_kfold, repeated_nested_group_kfold
+from splitproof import Record, evaluate_nested, nested_group_kfold, repeated_nested_group_kfold
 from splitproof.constraints import ConstraintError
 
 
@@ -60,3 +60,27 @@ def test_repeated_nested_splits_are_stable_and_disjoint() -> None:
 def test_repeated_nested_requires_positive_repeats() -> None:
     with pytest.raises(ConstraintError, match="repeats"):
         repeated_nested_group_kfold(records(), 3, 2, 0)
+
+
+def test_nested_evaluation_retains_inner_selection_and_outer_scores() -> None:
+    split = nested_group_kfold(records(), 3, 2, seed="eval")
+
+    def evaluator(train: tuple[Record, ...], test: tuple[Record, ...]) -> float:
+        return len(train) / len(test)
+
+    report = evaluate_nested(records(), split, evaluator)
+    assert report.complete
+    assert len(report.successful) == 3
+    assert all(row.selected_inner_fold in {0, 1} for row in report.successful)
+    assert report.mean_score is not None
+    lower = evaluate_nested(records(), split, evaluator, direction="lower")
+    assert all(row.selected_inner_fold in {0, 1} for row in lower.successful)
+
+
+def test_nested_evaluation_can_retain_failures() -> None:
+    split = nested_group_kfold(records(), 3, 2, seed="failure")
+    report = evaluate_nested(records(), split, lambda _train, _test: 1 / 0, strict=False)
+    assert not report.complete and len(report.failed) == 3
+    assert "ZeroDivisionError" in (report.failed[0].error or "")
+    with pytest.raises(ValueError, match="nested evaluation failed"):
+        evaluate_nested(records(), split, lambda _train, _test: 1 / 0)

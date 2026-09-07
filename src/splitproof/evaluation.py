@@ -6,9 +6,13 @@ import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from statistics import fmean, pstdev
+from typing import TYPE_CHECKING, Literal
 
 from .constraints import validate_records
 from .models import Assignment, Record
+
+if TYPE_CHECKING:
+    from .nested import NestedSplit, RepeatedNestedSplit
 
 FoldEvaluator = Callable[[tuple[Record, ...], tuple[Record, ...]], float]
 
@@ -57,6 +61,164 @@ class CrossValidationReport:
     def complete(self) -> bool:
         """Whether every requested fold produced a score."""
         return not self.failed
+
+
+@dataclass(frozen=True, slots=True)
+class NestedFoldScore:
+    """One outer fold with retained inner-selection evidence."""
+
+    repetition: int
+    outer_fold: int
+    inner_scores: tuple[tuple[int, float], ...]
+    selected_inner_fold: int | None
+    outer_score: float | None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NestedEvaluationReport:
+    """Nested evaluation results that never hide inner or outer failures."""
+
+    scores: tuple[NestedFoldScore, ...]
+    direction: Literal["higher", "lower"]
+
+    @property
+    def successful(self) -> tuple[NestedFoldScore, ...]:
+        """Return complete outer folds with a finite selected score."""
+
+        return tuple(
+            item for item in self.scores if item.error is None and item.outer_score is not None
+        )
+
+    @property
+    def failed(self) -> tuple[NestedFoldScore, ...]:
+        """Return outer folds with an inner or outer evaluation error."""
+
+        return tuple(item for item in self.scores if item.error is not None)
+
+    @property
+    def mean_score(self) -> float | None:
+        """Return the macro mean over successful outer folds."""
+
+        values = [item.outer_score for item in self.successful if item.outer_score is not None]
+        return fmean(values) if values else None
+
+    @property
+    def complete(self) -> bool:
+        """Whether every outer fold completed selection and evaluation."""
+
+        return not self.failed
+
+
+def evaluate_nested(
+    records: Iterable[Record],
+    nested: NestedSplit | RepeatedNestedSplit,
+    evaluator: FoldEvaluator,
+    *,
+    direction: Literal["higher", "lower"] = "higher",
+    strict: bool = True,
+) -> NestedEvaluationReport:
+    """Evaluate inner selection and outer holdouts from a nested split.
+
+    The evaluator receives immutable tuples. The best inner score (or lowest
+    when ``direction='lower'``) is retained as selection evidence; the outer
+    score is computed only on records excluded from that outer training set.
+    In non-strict mode an inner or outer failure becomes a row-level error.
+    """
+
+    if not callable(evaluator):
+        raise TypeError("evaluator must be callable")
+    if direction not in {"higher", "lower"}:
+        raise ValueError("direction must be 'higher' or 'lower'")
+    if not isinstance(strict, bool):
+        raise TypeError("strict must be a boolean")
+    materialized = validate_records(records)
+    by_id = {record.id: record for record in materialized}
+    if not by_id:
+        raise ValueError("at least one record is required")
+    from .nested import NestedSplit, RepeatedNestedSplit
+
+    repetitions: tuple[NestedSplit, ...]
+    if isinstance(nested, NestedSplit):
+        repetitions = (nested,)
+    elif isinstance(nested, RepeatedNestedSplit):
+        repetitions = nested.repetitions
+    else:
+        raise TypeError("nested must be NestedSplit or RepeatedNestedSplit")
+    if not repetitions:
+        raise ValueError("nested split must contain at least one repetition")
+
+    rows: list[NestedFoldScore] = []
+    for repetition_index, split in enumerate(repetitions):
+        outer_by_id = {item.record_id: item for item in split.outer}
+        if set(outer_by_id) != set(by_id) or len(outer_by_id) != len(by_id):
+            raise ValueError("outer assignments must cover every record exactly once")
+        for outer_fold in range(split.outer_folds):
+            outer_test = tuple(
+                by_id[item.record_id] for item in split.outer if item.fold == outer_fold
+            )
+            outer_train = tuple(
+                by_id[item.record_id] for item in split.outer if item.fold != outer_fold
+            )
+            inner = split.inner.get(outer_fold)
+            if inner is None:
+                raise ValueError(f"missing inner assignments for outer fold {outer_fold}")
+            inner_by_id = {item.record_id: item for item in inner}
+            if set(inner_by_id) != {record.id for record in outer_train}:
+                raise ValueError("inner assignments must cover the outer training records")
+            inner_scores: list[tuple[int, float]] = []
+            error: str | None = None
+            try:
+                for inner_fold in range(split.inner_folds):
+                    inner_validation = tuple(
+                        by_id[item.record_id] for item in inner if item.fold == inner_fold
+                    )
+                    inner_training = tuple(
+                        record
+                        for record in outer_train
+                        if inner_by_id[record.id].fold != inner_fold
+                    )
+                    if not inner_validation or not inner_training:
+                        raise ValueError(f"inner fold {inner_fold} must have non-empty partitions")
+                    score = float(evaluator(inner_training, inner_validation))
+                    if not math.isfinite(score):
+                        raise ValueError("evaluator returned a non-finite score")
+                    inner_scores.append((inner_fold, score))
+                selected = (
+                    max(inner_scores, key=lambda item: (item[1], -item[0]))
+                    if direction == "higher"
+                    else min(inner_scores, key=lambda item: (item[1], item[0]))
+                )
+                outer_score = float(evaluator(outer_train, outer_test))
+                if not math.isfinite(outer_score):
+                    raise ValueError("evaluator returned a non-finite outer score")
+                rows.append(
+                    NestedFoldScore(
+                        repetition_index,
+                        outer_fold,
+                        tuple(inner_scores),
+                        selected[0],
+                        outer_score,
+                    )
+                )
+            except Exception as exc:
+                if strict:
+                    raise ValueError(
+                        "nested evaluation failed in repetition "
+                        f"{repetition_index}, outer fold {outer_fold}: {exc}"
+                    ) from exc
+                error = f"{type(exc).__name__}: {exc}"
+                rows.append(
+                    NestedFoldScore(
+                        repetition_index,
+                        outer_fold,
+                        tuple(inner_scores),
+                        None,
+                        None,
+                        error,
+                    )
+                )
+    return NestedEvaluationReport(tuple(rows), direction)
 
 
 def evaluate_repeated_kfold(

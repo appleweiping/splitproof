@@ -2,7 +2,14 @@
 
 from .assigners import balanced_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
-from .evaluation import CrossValidationReport, FoldScore, evaluate_repeated_kfold
+from .evaluation import (
+    CrossValidationReport,
+    FoldScore,
+    NestedEvaluationReport,
+    NestedFoldScore,
+    evaluate_nested,
+    evaluate_repeated_kfold,
+)
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .models import Assignment, Record, SplitDiagnostics, SplitManifest
@@ -28,6 +35,8 @@ __all__ = [
     "CrossValidationReport",
     "FoldScore",
     "HoldoutStabilityReport",
+    "NestedEvaluationReport",
+    "NestedFoldScore",
     "NestedSplit",
     "Record",
     "RepeatedNestedSplit",
@@ -42,6 +51,7 @@ __all__ = [
     "create_manifest",
     "create_server",
     "diagnose",
+    "evaluate_nested",
     "evaluate_repeated_kfold",
     "hash_split",
     "holdout_stability_report",

@@ -9,6 +9,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ### Added
 
+- Add executable nested cross-validation evaluation with inner-fold model
+  selection, outer holdout scores, direction-aware selection, and retained failures.
 - Purged interval holdouts and chronological k-folds with gap, embargo, group protection,
   explicit exclusion reasons, and an optional past-only holdout policy.
 - `temporal-kfold` CLI reports with documented closed-interval semantics.

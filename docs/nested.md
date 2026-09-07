@@ -25,3 +25,9 @@ namespaces every repetition and exposes `outer_stability()` plus
 `inner_stability(outer_fold)`. Inner stability is computed over records common
 to that outer fold's training partitions, so changing an outer assignment
 cannot silently be mistaken for a model-selection regression.
+
+`evaluate_nested()` executes the generated split: it scores every inner fold,
+records the selected fold according to a higher/lower direction, then scores the
+outer holdout without mixing records. With `strict=False`, evaluator failures
+remain attached to the affected outer fold so a report can distinguish an
+incomplete run from a clean low score.
