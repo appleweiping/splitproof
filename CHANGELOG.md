@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Add deterministic cross-split leakage auditing with bounded, redacted reports
+  and a `leakage-audit` CLI.
 - Add leakage-aware repeated-k-fold evaluation reports with strict/non-strict evaluator failure handling.
 - Add a loopback-first HTTP/JSON service for split generation and diagnostics.
 - Add named-candidate nested model selection with deterministic tie-breaking,

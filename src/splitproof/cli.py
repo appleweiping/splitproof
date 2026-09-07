@@ -22,6 +22,7 @@ from .comparison import compare_manifests
 from .diagnostics import diagnose
 from .io import iter_records, load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
+from .leakage import audit_leakage
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .materialize import write_materialized
 from .repeat import repeated_kfold, stability_report
@@ -153,6 +154,15 @@ def build_parser() -> argparse.ArgumentParser:
     hash_stream.add_argument("--seed", default="0")
     hash_stream.add_argument("--assignments", type=Path, required=True)
     hash_stream.add_argument("--report", type=Path)
+    leakage = commands.add_parser(
+        "leakage-audit", help="find normalized exact duplicates across split boundaries"
+    )
+    _fields(leakage)
+    leakage.add_argument("--assignments", type=Path, required=True)
+    leakage.add_argument("--fields", default="text,content,question,answer")
+    leakage.add_argument("--min-length", type=int, default=1)
+    leakage.add_argument("--max-findings", type=int, default=10_000)
+    leakage.add_argument("--output", type=Path)
     return parser
 
 
@@ -454,6 +464,23 @@ def _run_compare(args: argparse.Namespace) -> int:
     return 1 if report.changed else 0
 
 
+def _run_leakage(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, assignments=args.assignments, output=args.output)
+    report = audit_leakage(
+        _load(args),
+        load_assignments(args.assignments),
+        fields=tuple(part.strip() for part in args.fields.split(",") if part.strip()),
+        min_length=args.min_length,
+        max_findings=args.max_findings,
+    )
+    rendered = json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n"
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.write_text(rendered, encoding="utf-8")
+    return 1 if not report.valid else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
@@ -467,6 +494,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "materialize": _run_materialize,
         "hash-stream": _run_hash_stream,
         "compare": _run_compare,
+        "leakage-audit": _run_leakage,
     }
     try:
         return runners[args.command](args)

@@ -37,6 +37,10 @@ For large JSONL inputs where a checksummed manifest is not required, the
 record-hash assignment with bounded memory. Group and stratified algorithms
 remain inventory-based by design; see [streaming hash assignment](docs/streaming-hash.md).
 
+Before training, `leakage-audit` can scan normalized payload fields for exact
+duplicates crossing split boundaries. It emits redacted digests rather than
+source text; see [cross-split leakage audits](docs/leakage-audits.md).
+
 ## How it works
 
 ```mermaid
