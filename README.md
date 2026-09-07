@@ -295,8 +295,7 @@ record's first normalized label and ignores both weight fields.
 ## Roadmap
 
 - opt-in exact optimization for smaller datasets;
-- streaming fingerprints and hash assignments;
-- manifest schema migration commands;
+- streaming hash assignments and schema-v1 migration commands are available;
 - pluggable content fingerprint fields.
 
 See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the
