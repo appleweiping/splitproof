@@ -1,0 +1,18 @@
+{
+  "elapsed_seconds": 0.1048542000062298,
+  "holdout_repeats": 3,
+  "holdout_splits": [
+    "test",
+    "train"
+  ],
+  "kfold_agreement": 0.4666666666666666,
+  "kfold_repeats": 3,
+  "kind": "fixture-real",
+  "peak_python_bytes": 34009,
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.5",
+  "records": 10,
+  "source": "examples/support_messages.jsonl",
+  "source_bytes": 839,
+  "source_sha256": "91bf064bbdb8fcc9e560e31e59a28c30490d15007fbcbd566ee7b1ddd87a7932"
+}
