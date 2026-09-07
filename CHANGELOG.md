@@ -9,6 +9,7 @@ All notable changes are documented here. The format follows Keep a Changelog.
 - Purged interval holdouts and chronological k-folds with gap, embargo, group protection,
   explicit exclusion reasons, and an optional past-only holdout policy.
 - `temporal-kfold` CLI reports with documented closed-interval semantics.
+- Nested group-aware k-fold assignments that keep outer validation records out of inner folds.
 
 ## [0.2.0] - 2026-08-31
 
