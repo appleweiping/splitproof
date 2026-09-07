@@ -58,6 +58,21 @@ def test_split_verify_and_inspect_end_to_end(tmp_path, capsys) -> None:  # type:
     )
     assert "Status: **PASS**" in report.read_text(encoding="utf-8")
     assert "Verification passed" in capsys.readouterr().out
+    materialized = tmp_path / "materialized"
+    assert (
+        main(
+            [
+                "materialize",
+                str(data),
+                "--manifest",
+                str(manifest),
+                "--output-dir",
+                str(materialized),
+            ]
+        )
+        == 0
+    )
+    assert (materialized / "train.jsonl").exists()
 
 
 def test_verify_detects_changed_data(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
