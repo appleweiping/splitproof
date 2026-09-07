@@ -15,6 +15,7 @@ from .evaluation import (
 )
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
+from .materialize import partition_records, write_materialized
 from .models import Assignment, Record, SplitDiagnostics, SplitManifest
 from .nested import (
     NestedSplit,
@@ -63,6 +64,7 @@ __all__ = [
     "holdout_stability_report",
     "load_manifest",
     "nested_group_kfold",
+    "partition_records",
     "purged_holdout",
     "purged_kfold",
     "repeated_group_holdout",
@@ -72,6 +74,7 @@ __all__ = [
     "stability_report",
     "stratified_group_split",
     "verify_manifest",
+    "write_materialized",
 ]
 
 __version__ = "0.2.0"

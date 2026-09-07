@@ -22,6 +22,7 @@ from .diagnostics import diagnose
 from .io import load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
+from .materialize import write_materialized
 from .repeat import repeated_kfold, stability_report
 from .reporting import report_json, report_markdown
 from .temporal import TimeInterval, purged_kfold
@@ -129,6 +130,13 @@ def build_parser() -> argparse.ArgumentParser:
     repeat.add_argument("--seed", default="0")
     repeat.add_argument("--stratified", action="store_true")
     repeat.add_argument("--output", type=Path)
+
+    materialize = commands.add_parser(
+        "materialize", help="write verified split payloads as deterministic JSONL files"
+    )
+    _fields(materialize)
+    materialize.add_argument("--manifest", type=Path, required=True)
+    materialize.add_argument("--output-dir", type=Path, required=True)
     return parser
 
 
@@ -382,6 +390,21 @@ def _run_repeat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_materialize(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, manifest=args.manifest)
+    records = _load(args)
+    manifest = load_manifest(args.manifest)
+    paths = write_materialized(records, manifest, args.output_dir)
+    print(
+        json.dumps(
+            {"output_dir": str(args.output_dir), "files": [str(path) for path in paths]},
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
@@ -392,6 +415,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "inspect": _run_inspect,
         "temporal-kfold": _run_temporal,
         "repeat": _run_repeat,
+        "materialize": _run_materialize,
     }
     try:
         return runners[args.command](args)

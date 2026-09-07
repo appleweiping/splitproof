@@ -8,6 +8,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 - Add a loopback-first HTTP/JSON service for split generation and diagnostics.
 - Add named-candidate nested model selection with deterministic tie-breaking,
   selected-candidate counts, and leakage-safe outer scoring.
+- Add verified split materialization that preserves source payloads and refuses
+  to overwrite existing JSONL outputs.
 
 ### Added
 
