@@ -99,9 +99,7 @@ def test_nested_candidate_selection_stays_inside_outer_training_partition() -> N
         assert train and test
         return 1.0 if name == "good" else 0.25
 
-    report = evaluate_nested_candidates(
-        records(), split, {"bad": evaluator, "good": evaluator}
-    )
+    report = evaluate_nested_candidates(records(), split, {"bad": evaluator, "good": evaluator})
     assert report.complete
     assert report.mean_score == 1.0
     assert report.selection_counts == {"good": 3}
