@@ -1,6 +1,7 @@
 """SplitProof: reproducible, group-aware dataset partitioning."""
 
 from .assigners import balanced_group_split, hash_split, stratified_group_split
+from .comparison import ManifestComparison, compare_manifests
 from .diagnostics import diagnose
 from .evaluation import (
     CandidateNestedEvaluationReport,
@@ -41,6 +42,7 @@ __all__ = [
     "CrossValidationReport",
     "FoldScore",
     "HoldoutStabilityReport",
+    "ManifestComparison",
     "NestedEvaluationReport",
     "NestedFoldScore",
     "NestedSplit",
@@ -54,6 +56,7 @@ __all__ = [
     "TimeInterval",
     "assign_kfold",
     "balanced_group_split",
+    "compare_manifests",
     "create_manifest",
     "create_server",
     "diagnose",

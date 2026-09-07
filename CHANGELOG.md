@@ -10,6 +10,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
   selected-candidate counts, and leakage-safe outer scoring.
 - Add verified split materialization that preserves source payloads and refuses
   to overwrite existing JSONL outputs.
+- Add deterministic manifest comparison for split drift, moved records, and
+  split transition counts.
 
 ### Added
 

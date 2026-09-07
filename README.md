@@ -190,6 +190,12 @@ splitproof inspect examples/support_messages.jsonl --manifest support.manifest.j
 `inspect` first performs the same manifest and dataset integrity checks as `verify`; it never
 prints a passing diagnostic report for a checksum or fingerprint mismatch.
 
+Use `splitproof compare before.manifest.json after.manifest.json` to audit two
+valid manifests without rerunning a split. The report distinguishes dataset
+fingerprint drift, added/removed records, moved records, fold changes, and split
+transition counts; exit code `1` means drift was found. See
+[manifest comparison](docs/manifest-comparison.md).
+
 ## Python API
 
 ```python

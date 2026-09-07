@@ -18,6 +18,7 @@ from .assigners import (
     hash_split,
     stratified_group_split,
 )
+from .comparison import compare_manifests
 from .diagnostics import diagnose
 from .io import load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
@@ -112,6 +113,12 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--manifest", type=Path, required=True)
     inspect.add_argument("--format", choices=("json", "markdown"), default="markdown")
     inspect.add_argument("--output", type=Path)
+    compare = commands.add_parser(
+        "compare", help="compare two split manifests for assignment drift"
+    )
+    compare.add_argument("before", type=Path)
+    compare.add_argument("after", type=Path)
+    compare.add_argument("--output", type=Path)
     temporal = commands.add_parser("temporal-kfold", help="create purged time-interval folds")
     _fields(temporal)
     temporal.add_argument("--start-field", default="start")
@@ -405,6 +412,18 @@ def _run_materialize(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_compare(args: argparse.Namespace) -> int:
+    if args.output is not None:
+        _require_distinct_paths(output=args.output, before=args.before, after=args.after)
+    report = compare_manifests(load_manifest(args.before), load_manifest(args.after))
+    rendered = json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n"
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.write_text(rendered, encoding="utf-8")
+    return 1 if report.changed else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
@@ -416,6 +435,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "temporal-kfold": _run_temporal,
         "repeat": _run_repeat,
         "materialize": _run_materialize,
+        "compare": _run_compare,
     }
     try:
         return runners[args.command](args)
