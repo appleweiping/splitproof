@@ -3,11 +3,14 @@
 from .assigners import balanced_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
 from .evaluation import (
+    CandidateNestedEvaluationReport,
+    CandidateNestedFoldScore,
     CrossValidationReport,
     FoldScore,
     NestedEvaluationReport,
     NestedFoldScore,
     evaluate_nested,
+    evaluate_nested_candidates,
     evaluate_repeated_kfold,
 )
 from .kfold import assign_kfold
@@ -32,6 +35,8 @@ from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
     "Assignment",
+    "CandidateNestedEvaluationReport",
+    "CandidateNestedFoldScore",
     "CrossValidationReport",
     "FoldScore",
     "HoldoutStabilityReport",
@@ -52,6 +57,7 @@ __all__ = [
     "create_server",
     "diagnose",
     "evaluate_nested",
+    "evaluate_nested_candidates",
     "evaluate_repeated_kfold",
     "hash_split",
     "holdout_stability_report",

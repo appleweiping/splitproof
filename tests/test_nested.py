@@ -1,6 +1,12 @@
 import pytest
 
-from splitproof import Record, evaluate_nested, nested_group_kfold, repeated_nested_group_kfold
+from splitproof import (
+    Record,
+    evaluate_nested,
+    evaluate_nested_candidates,
+    nested_group_kfold,
+    repeated_nested_group_kfold,
+)
 from splitproof.constraints import ConstraintError
 
 
@@ -84,3 +90,39 @@ def test_nested_evaluation_can_retain_failures() -> None:
     assert "ZeroDivisionError" in (report.failed[0].error or "")
     with pytest.raises(ValueError, match="nested evaluation failed"):
         evaluate_nested(records(), split, lambda _train, _test: 1 / 0)
+
+
+def test_nested_candidate_selection_stays_inside_outer_training_partition() -> None:
+    split = nested_group_kfold(records(), 3, 2, seed="candidates")
+
+    def evaluator(name: str, train: tuple[Record, ...], test: tuple[Record, ...]) -> float:
+        assert train and test
+        return 1.0 if name == "good" else 0.25
+
+    report = evaluate_nested_candidates(
+        records(), split, {"bad": evaluator, "good": evaluator}
+    )
+    assert report.complete
+    assert report.mean_score == 1.0
+    assert report.selection_counts == {"good": 3}
+    assert all(row.selected_candidate == "good" for row in report.successful)
+
+
+def test_nested_candidate_selection_supports_lower_direction_and_retains_failures() -> None:
+    split = nested_group_kfold(records(), 3, 2, seed="candidate-failure")
+
+    def evaluator(name: str, _train: tuple[Record, ...], _test: tuple[Record, ...]) -> float:
+        if name == "broken":
+            raise RuntimeError("model unavailable")
+        return 0.1 if name == "fast" else 0.2
+
+    lower = evaluate_nested_candidates(
+        records(), split, {"fast": evaluator, "slow": evaluator}, direction="lower"
+    )
+    assert lower.selection_counts == {"fast": 3}
+    failed = evaluate_nested_candidates(
+        records(), split, {"broken": evaluator, "fast": evaluator}, strict=False
+    )
+    assert not failed.complete and len(failed.failed) == 3
+    with pytest.raises(ValueError, match="nested candidate evaluation failed"):
+        evaluate_nested_candidates(records(), split, {"broken": evaluator})

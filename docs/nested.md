@@ -31,3 +31,25 @@ records the selected fold according to a higher/lower direction, then scores the
 outer holdout without mixing records. With `strict=False`, evaluator failures
 remain attached to the affected outer fold so a report can distinguish an
 incomplete run from a clean low score.
+
+For actual model selection, `evaluate_nested_candidates()` accepts a mapping of
+candidate names to callbacks. Each callback receives its candidate name and
+immutable train/test tuples. The callback is run on every inner fold, the best
+candidate mean is selected with deterministic name tie-breaking, and only that
+candidate is evaluated on the untouched outer holdout:
+
+```python
+from splitproof import evaluate_nested_candidates
+
+report = evaluate_nested_candidates(
+    records,
+    result,
+    {"linear": score_linear, "tree": score_tree},
+    direction="higher",
+)
+print(report.selection_counts, report.mean_score)
+```
+
+The report retains per-fold candidate means, selected names, and failures. This
+keeps preprocessing/model selection inside the outer training partition instead
+of accidentally tuning against the final holdout.
