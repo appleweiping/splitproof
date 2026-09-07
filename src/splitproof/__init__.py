@@ -14,6 +14,7 @@ from .evaluation import (
     evaluate_nested_candidates,
     evaluate_repeated_kfold,
 )
+from .io import iter_records
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .materialize import partition_records, write_materialized
@@ -33,6 +34,7 @@ from .repeat import (
     stability_report,
 )
 from .service import SplitService, create_server
+from .streaming import StreamSplitReport, hash_split_stream, write_hash_split_stream
 from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
@@ -52,6 +54,7 @@ __all__ = [
     "SplitManifest",
     "SplitService",
     "StabilityReport",
+    "StreamSplitReport",
     "TemporalFold",
     "TimeInterval",
     "assign_kfold",
@@ -64,7 +67,9 @@ __all__ = [
     "evaluate_nested_candidates",
     "evaluate_repeated_kfold",
     "hash_split",
+    "hash_split_stream",
     "holdout_stability_report",
+    "iter_records",
     "load_manifest",
     "nested_group_kfold",
     "partition_records",
@@ -77,6 +82,7 @@ __all__ = [
     "stability_report",
     "stratified_group_split",
     "verify_manifest",
+    "write_hash_split_stream",
     "write_materialized",
 ]
 

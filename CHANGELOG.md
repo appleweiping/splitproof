@@ -12,6 +12,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
   to overwrite existing JSONL outputs.
 - Add deterministic manifest comparison for split drift, moved records, and
   split transition counts.
+- Add bounded-memory JSONL record-hash assignment through `iter_records`,
+  `hash_split_stream`, and the atomic `hash-stream` CLI with output digests.
 
 ### Added
 

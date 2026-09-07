@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +51,55 @@ def load_records(
             )
         )
     return tuple(records)
+
+
+def iter_records(
+    path: str | Path,
+    *,
+    id_field: str = "id",
+    group_field: str = "group",
+    label_field: str = "label",
+    weight_field: str = "weight",
+    group_weight_field: str = "group_weight",
+) -> Iterator[Record]:
+    """Yield JSONL records one line at a time; JSON arrays use compatibility loading."""
+
+    source = Path(path)
+    if source.suffix.lower() != ".jsonl":
+        yield from load_records(
+            source,
+            id_field=id_field,
+            group_field=group_field,
+            label_field=label_field,
+            weight_field=weight_field,
+            group_weight_field=group_weight_field,
+        )
+        return
+    try:
+        stream = source.open(encoding="utf-8")
+    except OSError as error:
+        raise ValueError(f"cannot read records {source}: {error}") from error
+    with stream:
+        for line_number, line in enumerate(stream, start=1):
+            if not line.strip():
+                continue
+            try:
+                value = strict_loads(line)
+            except ValueError as error:
+                raise ValueError(f"line {line_number}: {error}") from error
+            if not isinstance(value, Mapping):
+                raise ValueError(f"record line {line_number} must be a JSON object")
+            try:
+                yield Record.from_mapping(
+                    value,
+                    id_field=id_field,
+                    group_field=group_field,
+                    label_field=label_field,
+                    weight_field=weight_field,
+                    group_weight_field=group_weight_field,
+                )
+            except ValueError as error:
+                raise ValueError(f"record line {line_number}: {error}") from error
 
 
 def save_assignments(assignments: Iterable[Assignment], path: str | Path) -> None:

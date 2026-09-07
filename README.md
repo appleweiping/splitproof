@@ -32,6 +32,11 @@ SplitProof makes these concerns explicit:
 - a dataset fingerprint plus whole-manifest checksum;
 - JSON and JSONL input, JSONL assignments, and Markdown/JSON reports.
 
+For large JSONL inputs where a checksummed manifest is not required, the
+`hash-stream` command and `hash_split_stream` API perform append-stable
+record-hash assignment with bounded memory. Group and stratified algorithms
+remain inventory-based by design; see [streaming hash assignment](docs/streaming-hash.md).
+
 ## How it works
 
 ```mermaid

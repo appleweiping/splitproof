@@ -20,12 +20,13 @@ from .assigners import (
 )
 from .comparison import compare_manifests
 from .diagnostics import diagnose
-from .io import load_assignments, load_records, save_assignments
+from .io import iter_records, load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .materialize import write_materialized
 from .repeat import repeated_kfold, stability_report
 from .reporting import report_json, report_markdown
+from .streaming import write_hash_split_stream
 from .temporal import TimeInterval, purged_kfold
 
 
@@ -144,6 +145,14 @@ def build_parser() -> argparse.ArgumentParser:
     _fields(materialize)
     materialize.add_argument("--manifest", type=Path, required=True)
     materialize.add_argument("--output-dir", type=Path, required=True)
+    hash_stream = commands.add_parser(
+        "hash-stream", help="stream a JSONL record-hash split without retaining payloads"
+    )
+    _fields(hash_stream)
+    hash_stream.add_argument("--ratios", type=_ratios, required=True)
+    hash_stream.add_argument("--seed", default="0")
+    hash_stream.add_argument("--assignments", type=Path, required=True)
+    hash_stream.add_argument("--report", type=Path)
     return parser
 
 
@@ -412,6 +421,27 @@ def _run_materialize(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_hash_stream(args: argparse.Namespace) -> int:
+    if args.input.suffix.lower() != ".jsonl":
+        raise ValueError("hash-stream requires a JSONL input so records can be bounded-memory")
+    _require_distinct_paths(input=args.input, assignments=args.assignments, report=args.report)
+    records = iter_records(
+        args.input,
+        id_field=args.id_field,
+        group_field=args.group_field,
+        label_field=args.label_field,
+        weight_field=args.weight_field,
+        group_weight_field=args.group_weight_field,
+    )
+    result = write_hash_split_stream(records, args.ratios, args.assignments, seed=args.seed)
+    rendered = json.dumps(result.to_dict(), indent=2, sort_keys=True) + "\n"
+    if args.report is None:
+        print(rendered, end="")
+    else:
+        args.report.write_text(rendered, encoding="utf-8")
+    return 0
+
+
 def _run_compare(args: argparse.Namespace) -> int:
     if args.output is not None:
         _require_distinct_paths(output=args.output, before=args.before, after=args.after)
@@ -435,6 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "temporal-kfold": _run_temporal,
         "repeat": _run_repeat,
         "materialize": _run_materialize,
+        "hash-stream": _run_hash_stream,
         "compare": _run_compare,
     }
     try:
