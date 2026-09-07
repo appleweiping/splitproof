@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Add leakage-aware repeated-k-fold evaluation reports with strict/non-strict evaluator failure handling.
+
 ### Added
 
 - Purged interval holdouts and chronological k-folds with gap, embargo, group protection,

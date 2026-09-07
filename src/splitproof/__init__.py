@@ -2,6 +2,7 @@
 
 from .assigners import balanced_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
+from .evaluation import CrossValidationReport, FoldScore, evaluate_repeated_kfold
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .models import Assignment, Record, SplitDiagnostics, SplitManifest
@@ -23,6 +24,8 @@ from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
     "Assignment",
+    "CrossValidationReport",
+    "FoldScore",
     "HoldoutStabilityReport",
     "NestedSplit",
     "Record",
@@ -36,6 +39,7 @@ __all__ = [
     "balanced_group_split",
     "create_manifest",
     "diagnose",
+    "evaluate_repeated_kfold",
     "hash_split",
     "holdout_stability_report",
     "load_manifest",
