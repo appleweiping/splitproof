@@ -22,6 +22,7 @@ from .diagnostics import diagnose
 from .io import load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
+from .repeat import repeated_kfold, stability_report
 from .reporting import report_json, report_markdown
 from .temporal import TimeInterval, purged_kfold
 
@@ -119,6 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
     temporal.add_argument("--embargo-seconds", type=int, default=0)
     temporal.add_argument("--allow-group-overlap", action="store_true")
     temporal.add_argument("--output", type=Path)
+    repeat = commands.add_parser(
+        "repeat", help="create repeated k-fold assignments and stability evidence"
+    )
+    _fields(repeat)
+    repeat.add_argument("--folds", type=int, default=5)
+    repeat.add_argument("--repeats", type=int, default=3)
+    repeat.add_argument("--seed", default="0")
+    repeat.add_argument("--stratified", action="store_true")
+    repeat.add_argument("--output", type=Path)
     return parser
 
 
@@ -335,6 +345,43 @@ def _run_temporal(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_repeat(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, output=args.output)
+    records = _load(args)
+    repetitions = repeated_kfold(
+        records,
+        args.folds,
+        args.repeats,
+        seed=args.seed,
+        stratified=args.stratified,
+    )
+    report = stability_report(repetitions, folds=args.folds)
+    rendered = (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "folds": report.folds,
+                "repeats": report.repeats,
+                "pairwise_agreement": report.pairwise_agreement,
+                "mean_entropy": report.mean_entropy,
+                "per_record_entropy": dict(report.per_record_entropy),
+                "fold_counts": {key: dict(value) for key, value in report.fold_counts.items()},
+                "assignments": [
+                    [asdict(item) for item in repetition] for repetition in repetitions
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.write_text(rendered, encoding="utf-8")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
@@ -344,6 +391,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "verify": _run_verify,
         "inspect": _run_inspect,
         "temporal-kfold": _run_temporal,
+        "repeat": _run_repeat,
     }
     try:
         return runners[args.command](args)

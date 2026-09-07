@@ -40,3 +40,18 @@ def test_temporal_cli_invalid_inputs_preserve_output(tmp_path: Path) -> None:
     output.write_text("keep", encoding="utf-8")
     assert main(["temporal-kfold", str(source), "--output", str(output)]) == 2
     assert output.read_text(encoding="utf-8") == "keep"
+
+
+def test_repeat_cli_reports_stability(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    source = tmp_path / "records.json"
+    source.write_text(
+        json.dumps([{"id": str(index), "group": f"g{index // 2}"} for index in range(8)]),
+        encoding="utf-8",
+    )
+    output = tmp_path / "repeat.json"
+    assert (
+        main(["repeat", str(source), "--folds", "2", "--repeats", "2", "--output", str(output)])
+        == 0
+    )
+    report = json.loads(output.read_text(encoding="utf-8"))
+    assert report["repeats"] == 2 and len(report["assignments"]) == 2
