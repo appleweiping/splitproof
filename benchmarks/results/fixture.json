@@ -1,5 +1,5 @@
 {
-  "elapsed_seconds": 0.1048542000062298,
+  "elapsed_seconds": 0.035086799995042384,
   "holdout_repeats": 3,
   "holdout_splits": [
     "test",
@@ -8,7 +8,9 @@
   "kfold_agreement": 0.4666666666666666,
   "kfold_repeats": 3,
   "kind": "fixture-real",
-  "peak_python_bytes": 34009,
+  "nested_outer_folds": 2,
+  "nested_outer_mean": 1.0833333333333333,
+  "peak_python_bytes": 34787,
   "platform": "Windows-11-10.0.26200-SP0",
   "python": "3.14.5",
   "records": 10,
