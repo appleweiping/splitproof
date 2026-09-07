@@ -1,4 +1,4 @@
-from splitproof import Assignment, Record, audit_leakage
+from splitproof import Assignment, Record, audit_leakage, audit_near_duplicates
 
 
 def _records() -> tuple[Record, ...]:
@@ -83,3 +83,50 @@ def test_invalid_options_are_rejected() -> None:
         assert "fields" in str(error)
     else:
         raise AssertionError("expected invalid fields error")
+
+
+def test_near_duplicate_audit_uses_shingles_and_redacts_source() -> None:
+    rows = (
+        Record("a", payload={"text": "alpha beta gamma delta epsilon"}),
+        Record("b", payload={"text": "alpha beta gamma delta zeta"}),
+        Record("c", payload={"text": "unrelated words here now"}),
+    )
+    report = audit_near_duplicates(
+        rows,
+        {"a": "train", "b": "test", "c": "train"},
+        threshold=0.5,
+    )
+    assert not report.valid
+    assert report.findings[0].record_id == "a"
+    assert report.findings[0].other_record_id == "b"
+    assert 0.5 <= report.findings[0].similarity <= 1
+    assert "alpha" not in str(report.to_dict())
+
+
+def test_near_duplicate_options_and_bounds() -> None:
+    rows = (Record("a", payload={"text": "one two three"}),)
+    for kwargs in ({"threshold": 2}, {"min_tokens": 0}, {"max_pairs": 0}):
+        try:
+            audit_near_duplicates(rows, {"a": "train"}, **kwargs)
+        except (TypeError, ValueError):
+            pass
+        else:
+            raise AssertionError("expected invalid near-duplicate option")
+
+
+def test_near_duplicate_skips_missing_non_text_and_same_split_candidates() -> None:
+    rows = (
+        Record("a", payload={"text": "one two three four"}),
+        Record("b", payload={"text": "one two three five"}),
+        Record("c", payload={"text": 42}),
+        Record("d", payload={}),
+    )
+    report = audit_near_duplicates(rows, {"a": "train", "b": "train", "c": "test", "d": "test"})
+    assert report.valid
+    duplicate = Record("a", payload={"text": "x"})
+    try:
+        audit_leakage((duplicate, duplicate), {"a": "train"})
+    except ValueError as error:
+        assert "duplicate IDs" in str(error)
+    else:
+        raise AssertionError("expected duplicate record IDs")

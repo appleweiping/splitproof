@@ -22,7 +22,7 @@ from .comparison import compare_manifests
 from .diagnostics import diagnose
 from .io import iter_records, load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
-from .leakage import audit_leakage
+from .leakage import audit_leakage, audit_near_duplicates
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .materialize import write_materialized
 from .repeat import repeated_kfold, stability_report
@@ -163,6 +163,16 @@ def build_parser() -> argparse.ArgumentParser:
     leakage.add_argument("--min-length", type=int, default=1)
     leakage.add_argument("--max-findings", type=int, default=10_000)
     leakage.add_argument("--output", type=Path)
+    near = commands.add_parser(
+        "near-duplicate-audit", help="find token-shingle near duplicates across splits"
+    )
+    _fields(near)
+    near.add_argument("--assignments", type=Path, required=True)
+    near.add_argument("--field", default="text")
+    near.add_argument("--threshold", type=float, default=0.8)
+    near.add_argument("--min-tokens", type=int, default=3)
+    near.add_argument("--max-pairs", type=int, default=10_000)
+    near.add_argument("--output", type=Path)
     return parser
 
 
@@ -481,6 +491,24 @@ def _run_leakage(args: argparse.Namespace) -> int:
     return 1 if not report.valid else 0
 
 
+def _run_near_duplicate(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, assignments=args.assignments, output=args.output)
+    report = audit_near_duplicates(
+        _load(args),
+        load_assignments(args.assignments),
+        field=args.field,
+        threshold=args.threshold,
+        min_tokens=args.min_tokens,
+        max_pairs=args.max_pairs,
+    )
+    rendered = json.dumps(report.to_dict(), indent=2, sort_keys=True) + "\n"
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.write_text(rendered, encoding="utf-8")
+    return 1 if not report.valid else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
@@ -495,6 +523,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "hash-stream": _run_hash_stream,
         "compare": _run_compare,
         "leakage-audit": _run_leakage,
+        "near-duplicate-audit": _run_near_duplicate,
     }
     try:
         return runners[args.command](args)

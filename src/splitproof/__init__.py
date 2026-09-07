@@ -16,7 +16,14 @@ from .evaluation import (
 )
 from .io import iter_records
 from .kfold import assign_kfold
-from .leakage import LeakageFinding, LeakageReport, audit_leakage
+from .leakage import (
+    LeakageFinding,
+    LeakageReport,
+    NearDuplicateFinding,
+    NearDuplicateReport,
+    audit_leakage,
+    audit_near_duplicates,
+)
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .materialize import partition_records, write_materialized
 from .models import Assignment, Record, SplitDiagnostics, SplitManifest
@@ -48,6 +55,8 @@ __all__ = [
     "LeakageFinding",
     "LeakageReport",
     "ManifestComparison",
+    "NearDuplicateFinding",
+    "NearDuplicateReport",
     "NestedEvaluationReport",
     "NestedFoldScore",
     "NestedSplit",
@@ -62,6 +71,7 @@ __all__ = [
     "TimeInterval",
     "assign_kfold",
     "audit_leakage",
+    "audit_near_duplicates",
     "balanced_group_split",
     "compare_manifests",
     "create_manifest",

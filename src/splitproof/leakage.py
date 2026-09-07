@@ -12,6 +12,7 @@ from typing import Any
 from .models import Assignment, Record
 
 _WHITESPACE = re.compile(r"\s+")
+_TOKEN_RE = re.compile(r"[\w]+", re.UNICODE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,6 +66,58 @@ class LeakageReport:
                 "assigned": self.assigned,
                 "fields": list(self.fields),
                 "pairs": self.pairs,
+                "truncated": self.truncated,
+                "valid": self.valid,
+            },
+            "findings": [finding.to_dict() for finding in self.findings],
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class NearDuplicateFinding:
+    """One cross-split pair whose shingle similarity crosses a threshold."""
+
+    field: str
+    record_id: str
+    other_record_id: str
+    split: str
+    other_split: str
+    similarity: float
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "field": self.field,
+            "record_id": self.record_id,
+            "other_record_id": self.other_record_id,
+            "split": self.split,
+            "other_split": self.other_split,
+            "similarity": self.similarity,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class NearDuplicateReport:
+    """Bounded report for approximate cross-split duplicate detection."""
+
+    records: int
+    assigned: int
+    field: str
+    threshold: float
+    findings: tuple[NearDuplicateFinding, ...]
+    truncated: bool = False
+
+    @property
+    def valid(self) -> bool:
+        return not self.findings and not self.truncated
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "summary": {
+                "records": self.records,
+                "assigned": self.assigned,
+                "field": self.field,
+                "threshold": self.threshold,
+                "pairs": len(self.findings),
                 "truncated": self.truncated,
                 "valid": self.valid,
             },
@@ -137,6 +190,88 @@ def audit_leakage(
             break
     findings.sort(key=lambda item: (item.field, item.record_id, item.other_record_id))
     return LeakageReport(len(rows), len(split_by_id), normalized_fields, tuple(findings), truncated)
+
+
+def audit_near_duplicates(
+    records: Iterable[Record],
+    assignments: Iterable[Assignment] | Mapping[str, str],
+    *,
+    field: str = "text",
+    threshold: float = 0.8,
+    min_tokens: int = 3,
+    max_pairs: int = 10_000,
+) -> NearDuplicateReport:
+    """Find cross-split near duplicates using deterministic token shingles.
+
+    The inverted shingle index avoids comparing unrelated records and retains
+    no source text in the report. Similarity is ordinary Jaccard similarity of
+    normalized token trigrams; the threshold is inclusive. This is a review
+    diagnostic, not a semantic-equivalence claim.
+    """
+
+    if not isinstance(field, str) or not field.strip():
+        raise ValueError("field must be a non-empty name")
+    if isinstance(threshold, bool) or not isinstance(threshold, (int, float)):
+        raise TypeError("threshold must be a real number")
+    if not 0 <= float(threshold) <= 1:
+        raise ValueError("threshold must be between zero and one")
+    if isinstance(min_tokens, bool) or not isinstance(min_tokens, int) or min_tokens < 1:
+        raise ValueError("min_tokens must be a positive integer")
+    if isinstance(max_pairs, bool) or not isinstance(max_pairs, int) or max_pairs < 1:
+        raise ValueError("max_pairs must be a positive integer")
+    rows = tuple(records)
+    split_by_id = _assignment_map(assignments)
+    candidates: dict[str, tuple[str, str, frozenset[str]]] = {}
+    inverted: dict[str, list[str]] = {}
+    for row in sorted(rows, key=lambda item: item.id):
+        split = split_by_id.get(row.id)
+        if split is None:
+            continue
+        value = row.payload.get(field)
+        if not isinstance(value, str):
+            continue
+        tokens = tuple(_TOKEN_RE.findall(value.casefold()))
+        if len(tokens) < min_tokens:
+            continue
+        shingles = frozenset(
+            " ".join(tokens[index : index + 3]) for index in range(len(tokens) - 2)
+        )
+        if not shingles:
+            continue
+        candidates[row.id] = (row.id, split, shingles)
+        for shingle in shingles:
+            inverted.setdefault(shingle, []).append(row.id)
+    findings: list[NearDuplicateFinding] = []
+    compared: set[tuple[str, str]] = set()
+    truncated = False
+    for record_id in sorted(candidates):
+        _, split, shingles = candidates[record_id]
+        related = sorted(
+            {item for shingle in shingles for item in inverted[shingle] if item < record_id}
+        )
+        for other_id in related:
+            pair = (other_id, record_id)
+            if pair in compared:
+                continue
+            compared.add(pair)
+            _, other_split, other_shingles = candidates[other_id]
+            if split == other_split:
+                continue
+            similarity = len(shingles & other_shingles) / len(shingles | other_shingles)
+            if similarity < float(threshold):
+                continue
+            if len(findings) >= max_pairs:
+                truncated = True
+                break
+            findings.append(
+                NearDuplicateFinding(field, other_id, record_id, other_split, split, similarity)
+            )
+        if truncated:
+            break
+    findings.sort(key=lambda item: (item.record_id, item.other_record_id))
+    return NearDuplicateReport(
+        len(rows), len(split_by_id), field, float(threshold), tuple(findings), truncated
+    )
 
 
 def _assignment_map(assignments: Iterable[Assignment] | Mapping[str, str]) -> dict[str, str]:
