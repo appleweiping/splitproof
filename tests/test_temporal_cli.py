@@ -55,3 +55,43 @@ def test_repeat_cli_reports_stability(tmp_path: Path, capsys: pytest.CaptureFixt
     )
     report = json.loads(output.read_text(encoding="utf-8"))
     assert report["repeats"] == 2 and len(report["assignments"]) == 2
+
+
+def test_repeat_holdout_cli_reports_allocation_rates(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    source = tmp_path / "records.json"
+    source.write_text(
+        json.dumps(
+            [
+                {
+                    "id": str(index),
+                    "group": f"g{index // 2}",
+                    "label": "a" if index % 2 else "b",
+                }
+                for index in range(8)
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        main(
+            [
+                "repeat-holdout",
+                str(source),
+                "--ratios",
+                "train=0.75,test=0.25",
+                "--repeats",
+                "3",
+                "--stratified",
+                "--minimum-count",
+                "train=1",
+            ]
+        )
+        == 0
+    )
+    report = json.loads(capsys.readouterr().out)
+    assert report["repeats"] == 3
+    assert report["splits"] == ["test", "train"]
+    assert set(report["allocation_rates"]) == {str(index) for index in range(8)}
+    assert len(report["assignments"]) == 3

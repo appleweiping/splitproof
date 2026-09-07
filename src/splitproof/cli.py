@@ -25,7 +25,12 @@ from .kfold import assign_kfold
 from .leakage import audit_leakage, audit_near_duplicates
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .materialize import write_materialized
-from .repeat import repeated_kfold, stability_report
+from .repeat import (
+    holdout_stability_report,
+    repeated_group_holdout,
+    repeated_kfold,
+    stability_report,
+)
 from .reporting import report_json, report_markdown
 from .streaming import write_hash_split_stream
 from .temporal import TimeInterval, purged_kfold
@@ -46,6 +51,23 @@ def _ratios(value: str) -> dict[str, float]:
         raise argparse.ArgumentTypeError("expected NAME=RATIO pairs separated by commas") from error
     if not result:
         raise argparse.ArgumentTypeError("at least one ratio is required")
+    return result
+
+
+def _minimum_counts(values: list[str]) -> dict[str, int]:
+    result: dict[str, int] = {}
+    for value in values:
+        try:
+            name, count = value.split("=", 1)
+            normalized_name = name.strip()
+            parsed = int(count)
+        except (TypeError, ValueError) as error:
+            raise argparse.ArgumentTypeError("expected NAME=COUNT pairs") from error
+        if not normalized_name or normalized_name in result or parsed < 1:
+            raise argparse.ArgumentTypeError(
+                "minimum counts require unique names and positive counts"
+            )
+        result[normalized_name] = parsed
     return result
 
 
@@ -139,6 +161,22 @@ def build_parser() -> argparse.ArgumentParser:
     repeat.add_argument("--seed", default="0")
     repeat.add_argument("--stratified", action="store_true")
     repeat.add_argument("--output", type=Path)
+    holdout = commands.add_parser(
+        "repeat-holdout", help="create repeated group-preserving named holdout assignments"
+    )
+    _fields(holdout)
+    holdout.add_argument("--ratios", type=_ratios, default={"train": 0.8, "test": 0.2})
+    holdout.add_argument("--repeats", type=int, default=3)
+    holdout.add_argument("--seed", default="0")
+    holdout.add_argument("--stratified", action="store_true")
+    holdout.add_argument(
+        "--minimum-count",
+        action="append",
+        default=[],
+        metavar="SPLIT=COUNT",
+        help="require at least COUNT records in SPLIT (repeatable)",
+    )
+    holdout.add_argument("--output", type=Path)
 
     materialize = commands.add_parser(
         "materialize", help="write verified split payloads as deterministic JSONL files"
@@ -426,6 +464,44 @@ def _run_repeat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_repeat_holdout(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, output=args.output)
+    records = _load(args)
+    repetitions = repeated_group_holdout(
+        records,
+        args.ratios,
+        args.repeats,
+        seed=args.seed,
+        stratified=args.stratified,
+        minimum_counts=_minimum_counts(args.minimum_count),
+    )
+    report = holdout_stability_report(repetitions)
+    rendered = (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "ratios": args.ratios,
+                "repeats": report.repeats,
+                "splits": list(report.splits),
+                "allocation_rates": {
+                    record_id: dict(rates) for record_id, rates in report.allocation_rates.items()
+                },
+                "assignments": [
+                    [asdict(item) for item in repetition] for repetition in repetitions
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.write_text(rendered, encoding="utf-8")
+    return 0
+
+
 def _run_materialize(args: argparse.Namespace) -> int:
     _require_distinct_paths(input=args.input, manifest=args.manifest)
     records = _load(args)
@@ -519,6 +595,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "inspect": _run_inspect,
         "temporal-kfold": _run_temporal,
         "repeat": _run_repeat,
+        "repeat-holdout": _run_repeat_holdout,
         "materialize": _run_materialize,
         "hash-stream": _run_hash_stream,
         "compare": _run_compare,
