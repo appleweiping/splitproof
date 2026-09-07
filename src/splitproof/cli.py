@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections.abc import Sequence
+from dataclasses import asdict
+from datetime import datetime, timedelta
 from itertools import combinations
 from pathlib import Path
 
@@ -20,6 +23,7 @@ from .io import load_assignments, load_records, save_assignments
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .reporting import report_json, report_markdown
+from .temporal import TimeInterval, purged_kfold
 
 
 def _ratios(value: str) -> dict[str, float]:
@@ -106,6 +110,15 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--manifest", type=Path, required=True)
     inspect.add_argument("--format", choices=("json", "markdown"), default="markdown")
     inspect.add_argument("--output", type=Path)
+    temporal = commands.add_parser("temporal-kfold", help="create purged time-interval folds")
+    _fields(temporal)
+    temporal.add_argument("--start-field", default="start")
+    temporal.add_argument("--end-field", default="end")
+    temporal.add_argument("--folds", type=int, default=5)
+    temporal.add_argument("--gap-seconds", type=int, default=0)
+    temporal.add_argument("--embargo-seconds", type=int, default=0)
+    temporal.add_argument("--allow-group-overlap", action="store_true")
+    temporal.add_argument("--output", type=Path)
     return parser
 
 
@@ -278,6 +291,52 @@ def _run_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_temporal(args: argparse.Namespace) -> int:
+    _require_distinct_paths(input=args.input, output=args.output)
+    records = _load(args)
+    intervals: dict[str, TimeInterval] = {}
+    for record in records:
+        values = [record.payload.get(field) for field in (args.start_field, args.end_field)]
+        if any(not isinstance(value, str) for value in values):
+            raise ValueError(
+                f"record {record.id!r} requires ISO timestamp strings for start and end"
+            )
+        start, end = values
+        assert isinstance(start, str) and isinstance(end, str)
+        intervals[record.id] = TimeInterval(
+            datetime.fromisoformat(start.replace("Z", "+00:00")),
+            datetime.fromisoformat(end.replace("Z", "+00:00")),
+        )
+    folds = purged_kfold(
+        records,
+        intervals,
+        args.folds,
+        gap=timedelta(seconds=args.gap_seconds),
+        embargo=timedelta(seconds=args.embargo_seconds),
+        protect_groups=not args.allow_group_overlap,
+    )
+    rendered = (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "algorithm": "purged-time-kfold-v1",
+                "gap_seconds": args.gap_seconds,
+                "embargo_seconds": args.embargo_seconds,
+                "protect_groups": not args.allow_group_overlap,
+                "folds": [asdict(fold) for fold in folds],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    if args.output is None:
+        print(rendered, end="")
+    else:
+        args.output.write_text(rendered, encoding="utf-8")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
@@ -286,10 +345,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "kfold": _run_kfold,
         "verify": _run_verify,
         "inspect": _run_inspect,
+        "temporal-kfold": _run_temporal,
     }
     try:
         return runners[args.command](args)
-    except (ValueError, OSError, TypeError, KeyError) as error:
+    except (ValueError, OSError, TypeError, KeyError, OverflowError) as error:
         print(f"splitproof: error: {error}", file=sys.stderr)
         return 2
 

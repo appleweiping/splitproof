@@ -5,18 +5,23 @@ from .diagnostics import diagnose
 from .kfold import assign_kfold
 from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
 from .models import Assignment, Record, SplitDiagnostics, SplitManifest
+from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
     "Assignment",
     "Record",
     "SplitDiagnostics",
     "SplitManifest",
+    "TemporalFold",
+    "TimeInterval",
     "assign_kfold",
     "balanced_group_split",
     "create_manifest",
     "diagnose",
     "hash_split",
     "load_manifest",
+    "purged_holdout",
+    "purged_kfold",
     "save_manifest",
     "stratified_group_split",
     "verify_manifest",
