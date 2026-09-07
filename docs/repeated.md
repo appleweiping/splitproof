@@ -15,3 +15,8 @@ repetitions = repeated_kfold(records, folds=5, repeats=10, seed="experiment-7")
 report = stability_report(repetitions)
 print(report.pairwise_agreement, report.mean_entropy)
 ```
+
+For repeated train/test experiments, `repeated_group_holdout` preserves groups
+and derives independent seeds. `holdout_stability_report` reports per-record
+allocation rates across named splits, making unstable membership visible before
+model scores are compared.

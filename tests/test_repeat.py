@@ -1,6 +1,12 @@
 import pytest
 
-from splitproof import Record, repeated_kfold, stability_report
+from splitproof import (
+    Record,
+    holdout_stability_report,
+    repeated_group_holdout,
+    repeated_kfold,
+    stability_report,
+)
 
 
 def records() -> list[Record]:
@@ -32,3 +38,15 @@ def test_stability_report_entropy_and_validation() -> None:
         repeated_kfold(records(), 2, 0)
     with pytest.raises(ValueError, match="repetition"):
         stability_report([])
+
+
+def test_repeated_group_holdout_reports_named_allocation_rates() -> None:
+    repetitions = repeated_group_holdout(
+        records(), {"train": 0.75, "test": 0.25}, 4, seed="holdout"
+    )
+    report = holdout_stability_report(repetitions)
+    assert report.repeats == 4 and report.splits == ("test", "train")
+    assert report.rate("0", "test") + report.rate("0", "train") == pytest.approx(1.0)
+    assert all(len(repetition) == len(records()) for repetition in repetitions)
+    with pytest.raises(ValueError, match="positive"):
+        repeated_group_holdout(records(), {"train": 1, "test": 1}, 0)

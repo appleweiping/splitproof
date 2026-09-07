@@ -11,11 +11,19 @@ from .nested import (
     nested_group_kfold,
     repeated_nested_group_kfold,
 )
-from .repeat import StabilityReport, repeated_kfold, stability_report
+from .repeat import (
+    HoldoutStabilityReport,
+    StabilityReport,
+    holdout_stability_report,
+    repeated_group_holdout,
+    repeated_kfold,
+    stability_report,
+)
 from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
     "Assignment",
+    "HoldoutStabilityReport",
     "NestedSplit",
     "Record",
     "RepeatedNestedSplit",
@@ -29,10 +37,12 @@ __all__ = [
     "create_manifest",
     "diagnose",
     "hash_split",
+    "holdout_stability_report",
     "load_manifest",
     "nested_group_kfold",
     "purged_holdout",
     "purged_kfold",
+    "repeated_group_holdout",
     "repeated_kfold",
     "repeated_nested_group_kfold",
     "save_manifest",
