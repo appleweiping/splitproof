@@ -19,3 +19,9 @@ stratification. Seeds are namespaced by level and outer fold. This returns
 assignments, not fitted models or scores; the caller must fit preprocessing and
 models inside each outer training partition. A fold count larger than the number
 of available groups fails through the existing constraints.
+
+For variance estimates across both levels, `repeated_nested_group_kfold`
+namespaces every repetition and exposes `outer_stability()` plus
+`inner_stability(outer_fold)`. Inner stability is computed over records common
+to that outer fold's training partitions, so changing an outer assignment
+cannot silently be mistaken for a model-selection regression.

@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .constraints import ConstraintError, validate_records
+from .hashing import stable_digest
 from .kfold import assign_kfold
 from .models import Assignment, Record
+
+if TYPE_CHECKING:
+    from .repeat import StabilityReport
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +44,54 @@ class NestedSplit:
         return tuple(item.record_id for item in self.inner[outer_fold] if item.fold == inner_fold)
 
 
+@dataclass(frozen=True, slots=True)
+class RepeatedNestedSplit:
+    """Independent nested splits with deterministic repeat-level seeds."""
+
+    repetitions: tuple[NestedSplit, ...]
+
+    @property
+    def repeats(self) -> int:
+        """Number of nested repetitions."""
+        return len(self.repetitions)
+
+    @property
+    def outer_folds(self) -> int:
+        """Number of outer folds shared by every repetition."""
+        return self.repetitions[0].outer_folds if self.repetitions else 0
+
+    @property
+    def inner_folds(self) -> int:
+        """Number of inner folds shared by every repetition."""
+        return self.repetitions[0].inner_folds if self.repetitions else 0
+
+    def outer_stability(self) -> StabilityReport:
+        """Return fold-agreement diagnostics for outer assignments."""
+        from .repeat import stability_report
+
+        return stability_report((split.outer for split in self.repetitions), folds=self.outer_folds)
+
+    def inner_stability(self, outer_fold: int) -> StabilityReport:
+        """Return agreement diagnostics for one outer fold's inner assignments."""
+        if not self.repetitions or outer_fold < 0 or outer_fold >= self.outer_folds:
+            raise IndexError(outer_fold)
+        from .repeat import stability_report
+
+        assignments = tuple(split.inner[outer_fold] for split in self.repetitions)
+        common_ids = set.intersection(
+            *(set(item.record_id for item in items) for items in assignments)
+        )
+        if not common_ids:
+            raise ValueError("outer fold has no records shared across repetitions")
+        return stability_report(
+            (
+                tuple(item for item in items if item.record_id in common_ids)
+                for items in assignments
+            ),
+            folds=self.inner_folds,
+        )
+
+
 def nested_group_kfold(
     records: Sequence[Record],
     outer_folds: int,
@@ -62,3 +115,33 @@ def nested_group_kfold(
             training, inner_folds, seed=f"{seed}:inner:{fold}", stratified=stratified
         )
     return NestedSplit(tuple(outer), inner_by_outer, outer_folds, inner_folds)
+
+
+def repeated_nested_group_kfold(
+    records: Sequence[Record],
+    outer_folds: int,
+    inner_folds: int,
+    repeats: int,
+    *,
+    seed: str | int = "0",
+    stratified: bool = False,
+) -> RepeatedNestedSplit:
+    """Create independently seeded nested group-aware cross-validation repeats."""
+
+    if isinstance(repeats, bool) or not isinstance(repeats, int) or repeats < 1:
+        raise ConstraintError("repeats must be a positive integer")
+    materialized = tuple(records)
+    if not materialized:
+        raise ConstraintError("at least one record is required")
+    seed_text = str(seed)
+    splits = tuple(
+        nested_group_kfold(
+            materialized,
+            outer_folds,
+            inner_folds,
+            seed=stable_digest(str(repeat), seed=seed_text, domain="nested-repeat"),
+            stratified=stratified,
+        )
+        for repeat in range(repeats)
+    )
+    return RepeatedNestedSplit(splits)

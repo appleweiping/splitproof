@@ -1,6 +1,6 @@
 import pytest
 
-from splitproof import Record, nested_group_kfold
+from splitproof import Record, nested_group_kfold, repeated_nested_group_kfold
 from splitproof.constraints import ConstraintError
 
 
@@ -42,3 +42,21 @@ def test_groups_never_cross_one_assignment() -> None:
 def test_invalid_fold_counts(outer: int, inner: int) -> None:
     with pytest.raises(ConstraintError):
         nested_group_kfold(records(), outer, inner)
+
+
+def test_repeated_nested_splits_are_stable_and_disjoint() -> None:
+    result = repeated_nested_group_kfold(records(), 3, 2, 3, seed="seed", stratified=True)
+    same = repeated_nested_group_kfold(records(), 3, 2, 3, seed="seed", stratified=True)
+    assert result == same and result.repeats == 3
+    assert result.outer_stability().repeats == 3
+    assert result.inner_stability(0).repeats == 3
+    all_ids = {record.id for record in records()}
+    for split in result.repetitions:
+        for fold in range(3):
+            assert set(split.outer_validation(fold)) | set(split.outer_training(fold)) == all_ids
+            assert not set(split.outer_validation(fold)) & set(split.outer_training(fold))
+
+
+def test_repeated_nested_requires_positive_repeats() -> None:
+    with pytest.raises(ConstraintError, match="repeats"):
+        repeated_nested_group_kfold(records(), 3, 2, 0)

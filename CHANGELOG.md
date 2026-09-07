@@ -11,6 +11,7 @@ All notable changes are documented here. The format follows Keep a Changelog.
 - `temporal-kfold` CLI reports with documented closed-interval semantics.
 - Nested group-aware k-fold assignments that keep outer validation records out of inner folds.
 - Repeated k-fold assignments with deterministic seed derivation and stability diagnostics.
+- Repeated nested group-aware cross-validation with outer/inner stability summaries.
 
 ## [0.2.0] - 2026-08-31
 
