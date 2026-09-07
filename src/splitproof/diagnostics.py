@@ -78,7 +78,6 @@ def diagnose(
         members = group_records[group_key]
         explicit = {item.group_weight for item in members if item.group_weight is not None}
         effective_weight = min(explicit) if explicit else sum(item.weight for item in members)
-        assert effective_weight is not None
         total_group_weight += effective_weight
         observed_splits = {
             split for member in members for split in assigned_splits_by_id.get(member.id, set())

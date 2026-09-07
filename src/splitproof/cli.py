@@ -146,7 +146,6 @@ def _require_distinct_paths(**paths: Path | None) -> None:
     """Reject ambiguous CLI roles before any output file can be written."""
     present = [(name, path) for name, path in paths.items() if path is not None]
     for (left_name, left), (right_name, right) in combinations(present, 2):
-        assert left is not None and right is not None
         if _paths_collide(left, right):
             raise ValueError(f"{left_name} and {right_name} paths must be different")
 
@@ -297,12 +296,11 @@ def _run_temporal(args: argparse.Namespace) -> int:
     intervals: dict[str, TimeInterval] = {}
     for record in records:
         values = [record.payload.get(field) for field in (args.start_field, args.end_field)]
-        if any(not isinstance(value, str) for value in values):
+        if not all(isinstance(value, str) for value in values):
             raise ValueError(
                 f"record {record.id!r} requires ISO timestamp strings for start and end"
             )
-        start, end = values
-        assert isinstance(start, str) and isinstance(end, str)
+        start, end = (str(value) for value in values)
         intervals[record.id] = TimeInterval(
             datetime.fromisoformat(start.replace("Z", "+00:00")),
             datetime.fromisoformat(end.replace("Z", "+00:00")),

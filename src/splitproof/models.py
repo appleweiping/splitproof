@@ -47,7 +47,8 @@ def _label_values(value: Any, field_name: str) -> tuple[str, ...]:
     labels: list[str] = []
     for item in values:
         label = _stable_scalar(item, field_name, allow_none=False)
-        assert label is not None
+        if label is None:
+            raise ValueError(f"{field_name} values must not be null")
         if not label:
             raise ValueError(f"{field_name} values must not be empty")
         labels.append(label)
@@ -93,7 +94,8 @@ class Record:
         normalized_group_weight = _positive_weight(
             self.group_weight, "record group_weight", allow_none=True
         )
-        assert normalized_weight is not None
+        if normalized_weight is None:
+            raise ValueError("record weight must not be null")
         object.__setattr__(self, "labels", normalized_labels)
         object.__setattr__(self, "weight", normalized_weight)
         object.__setattr__(self, "group_weight", normalized_group_weight)
@@ -119,7 +121,8 @@ class Record:
         if id_field not in value:
             raise ValueError(f"record is missing required field {id_field!r}")
         identifier = _stable_scalar(value[id_field], "record id", allow_none=False)
-        assert identifier is not None
+        if identifier is None:
+            raise ValueError("record id must not be null")
         group = _stable_scalar(value.get(group_field), "record group", allow_none=True)
         raw_label = value.get(label_field)
         if isinstance(raw_label, list):
@@ -132,7 +135,8 @@ class Record:
         group_weight = _positive_weight(
             value.get(group_weight_field), "record group_weight", allow_none=True
         )
-        assert weight is not None
+        if weight is None:
+            raise ValueError("record weight must not be null")
         return cls(
             id=identifier,
             group=group,
