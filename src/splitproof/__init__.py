@@ -20,6 +20,7 @@ from .repeat import (
     repeated_kfold,
     stability_report,
 )
+from .service import SplitService, create_server
 from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
@@ -32,12 +33,14 @@ __all__ = [
     "RepeatedNestedSplit",
     "SplitDiagnostics",
     "SplitManifest",
+    "SplitService",
     "StabilityReport",
     "TemporalFold",
     "TimeInterval",
     "assign_kfold",
     "balanced_group_split",
     "create_manifest",
+    "create_server",
     "diagnose",
     "evaluate_repeated_kfold",
     "hash_split",

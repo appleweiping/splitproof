@@ -5,6 +5,7 @@ All notable changes are documented here. The format follows Keep a Changelog.
 ## [Unreleased]
 
 - Add leakage-aware repeated-k-fold evaluation reports with strict/non-strict evaluator failure handling.
+- Add a loopback-first HTTP/JSON service for split generation and diagnostics.
 
 ### Added
 
