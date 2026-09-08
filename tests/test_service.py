@@ -113,6 +113,25 @@ def test_split_service_dispatches_exact_group_algorithm() -> None:
     assert {item["split"] for item in response["assignments"]} == {"train", "test"}
 
 
+def test_split_service_dispatches_stratified_exact_group_algorithm() -> None:
+    response = SplitService().dispatch(
+        {
+            "operation": "split",
+            "records": [
+                {"id": "a", "group": "one", "label": "x"},
+                {"id": "b", "group": "two", "label": "y"},
+                {"id": "c", "group": "three", "label": "x"},
+                {"id": "d", "group": "four", "label": "y"},
+            ],
+            "ratios": {"train": 0.5, "test": 0.5},
+            "algorithm": "exact",
+            "stratified": True,
+            "max_groups": 4,
+        }
+    )
+    assert len(response["assignments"]) == 4
+
+
 def test_split_service_migrates_a_verified_v1_manifest(tmp_path) -> None:
     records = [{"id": "a", "group": "g"}, {"id": "b", "group": "g"}]
     rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))

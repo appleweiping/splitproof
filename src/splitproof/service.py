@@ -42,7 +42,16 @@ class SplitService:
                 max_groups = request.get("max_groups", 12)
                 if isinstance(max_groups, bool) or not isinstance(max_groups, int):
                     raise ValueError("max_groups must be an integer")
-                assignments = exact_group_split(records, ratios, seed=seed, max_groups=max_groups)
+                stratified = request.get("stratified", False)
+                if not isinstance(stratified, bool):
+                    raise ValueError("stratified must be a boolean")
+                assignments = exact_group_split(
+                    records,
+                    ratios,
+                    seed=seed,
+                    stratified=stratified,
+                    max_groups=max_groups,
+                )
             elif algorithm == "balanced":
                 assignments = balanced_group_split(records, ratios, seed=seed)
             else:
