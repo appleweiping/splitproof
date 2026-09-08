@@ -19,6 +19,8 @@ def normalize_fingerprint_fields(fields: Iterable[str] | None) -> tuple[str, ...
 
     if fields is None:
         return DEFAULT_FINGERPRINT_FIELDS
+    if isinstance(fields, (str, bytes)):
+        raise ValueError("fingerprint fields must be an iterable of field names")
     values = tuple(fields)
     if any(not isinstance(field, str) or not field.strip() for field in values):
         raise ValueError("fingerprint fields must be non-empty strings")
