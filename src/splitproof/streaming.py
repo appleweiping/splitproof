@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import tempfile
 from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
@@ -46,23 +47,32 @@ def hash_split_stream(
 ) -> Iterator[Assignment]:
     """Yield append-stable hash assignments without materializing record payloads.
 
-    The iterator retains only seen IDs while consuming input. It intentionally
-    supports record-hash assignment only; group balancing requires a complete
-    group inventory and remains available through :func:`balanced_group_split`.
+    Duplicate detection uses a temporary on-disk SQLite primary-key table, so
+    the Python process retains only bounded SQLite pages while consuming input.
+    It intentionally supports record-hash assignment only; group balancing
+    requires a complete group inventory and remains available through
+    :func:`balanced_group_split`.
     """
 
     checked = validate_ratios(ratios)
-    seen: set[str] = set()
-    for record in records:
-        if not isinstance(record, Record):
-            raise TypeError("records must contain Record values")
-        if record.id in seen:
-            raise ValueError(f"duplicate record ID: {record.id!r}")
-        seen.add(record.id)
-        destination = _choose_by_ratio(
-            stable_unit_interval(record.id, seed=str(seed), domain="record-split"), checked
-        )
-        yield Assignment(record.id, destination)
+    connection = sqlite3.connect("")
+    try:
+        connection.execute("CREATE TABLE seen_ids (record_id TEXT PRIMARY KEY NOT NULL)")
+        for index, record in enumerate(records, start=1):
+            if not isinstance(record, Record):
+                raise TypeError("records must contain Record values")
+            try:
+                connection.execute("INSERT INTO seen_ids(record_id) VALUES (?)", (record.id,))
+            except sqlite3.IntegrityError as error:
+                raise ValueError(f"duplicate record ID: {record.id!r}") from error
+            if index % 512 == 0:
+                connection.commit()
+            destination = _choose_by_ratio(
+                stable_unit_interval(record.id, seed=str(seed), domain="record-split"), checked
+            )
+            yield Assignment(record.id, destination)
+    finally:
+        connection.close()
 
 
 def write_hash_split_stream(
@@ -121,9 +131,10 @@ def verify_hash_split_stream(assignments: str | Path, report: str | Path) -> Str
         raise ValueError("unsupported stream report")
     digest = hashlib.sha256()
     counts: Counter[str] = Counter()
-    seen: set[str] = set()
     total = 0
+    connection = sqlite3.connect("")
     try:
+        connection.execute("CREATE TABLE seen_ids (record_id TEXT PRIMARY KEY NOT NULL)")
         with Path(assignments).open("rb") as stream:
             for raw in stream:
                 digest.update(raw)
@@ -137,13 +148,18 @@ def verify_hash_split_stream(assignments: str | Path, report: str | Path) -> Str
                 split = value.get("split")
                 if not isinstance(split, str) or not split:
                     raise ValueError(f"assignment row {total + 1} must contain a split")
-                if record_id in seen:
-                    raise ValueError(f"duplicate assignment ID: {record_id!r}")
-                seen.add(record_id)
+                try:
+                    connection.execute("INSERT INTO seen_ids(record_id) VALUES (?)", (record_id,))
+                except sqlite3.IntegrityError as error:
+                    raise ValueError(f"duplicate assignment ID: {record_id!r}") from error
                 counts[split] += 1
                 total += 1
+                if total % 512 == 0:
+                    connection.commit()
     except OSError as error:
         raise ValueError(f"cannot read assignments: {error}") from error
+    finally:
+        connection.close()
     actual = StreamSplitReport("record-hash-stream-v1", total, dict(counts), digest.hexdigest())
     if (
         expected.get("records") != actual.records

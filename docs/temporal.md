@@ -11,8 +11,7 @@ from splitproof import Record, TimeInterval, purged_holdout
 origin = datetime(2026, 1, 1, tzinfo=timezone.utc)
 records = [Record(str(i)) for i in range(10)]
 intervals = {
-    str(i): TimeInterval(origin + timedelta(days=i), origin + timedelta(days=i))
-    for i in range(10)
+    str(i): TimeInterval(origin + timedelta(days=i), origin + timedelta(days=i)) for i in range(10)
 }
 fold = purged_holdout(records, intervals, ["7", "8"], past_only=True)
 assert fold.train == ("0", "1", "2", "3", "4", "5", "6")

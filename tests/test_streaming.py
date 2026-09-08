@@ -37,6 +37,18 @@ def test_hash_split_stream_matches_hash_split_set_and_rejects_duplicates() -> No
     }
     with pytest.raises(ValueError, match="duplicate"):
         tuple(hash_split_stream((records[0], records[0]), {"train": 1.0}))
+    with pytest.raises(TypeError, match="Record"):
+        tuple(hash_split_stream((object(),), {"train": 1.0}))  # type: ignore[arg-type]
+
+
+def test_hash_split_stream_commits_bounded_duplicate_store(tmp_path: Path) -> None:
+    records = tuple(Record(str(index), payload={"id": str(index)}) for index in range(512))
+    assignments = tmp_path / "assignments.jsonl"
+    report = write_hash_split_stream(records, {"train": 1.0}, assignments)
+    assert report.records == 512
+    report_path = tmp_path / "report.json"
+    report_path.write_text(json.dumps(report.to_dict()), encoding="utf-8")
+    assert verify_hash_split_stream(assignments, report_path).records == 512
 
 
 def test_write_hash_split_stream_is_atomic_and_reports_digest(tmp_path: Path) -> None:

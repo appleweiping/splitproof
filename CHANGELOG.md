@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Make `hash-stream` and `hash-stream-verify` duplicate detection genuinely
+  bounded-memory by using temporary SQLite primary-key stores.
 - Add opt-in payload-field dataset fingerprinting for content-integrity-aware
   manifests and verification.
 - Add authenticated `hash-stream-verify` CLI/API checks for streamed assignment artifacts.

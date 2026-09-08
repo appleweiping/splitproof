@@ -298,6 +298,8 @@ record's first normalized label and ignores both weight fields.
   `exact_group_split` / `--algorithm exact-group`; pass `--stratified` to
   include label balance in the exhaustive objective;
 - streaming hash assignments and schema-v1 migration commands are available;
+- hash-stream duplicate detection uses a temporary SQLite primary-key store so
+  large JSONL inputs do not retain every ID in Python memory;
 - `hash-stream-verify` authenticates an assignment JSONL file against its
   bounded-memory report without requiring the original corpus;
 - pluggable payload fingerprint fields are available through
