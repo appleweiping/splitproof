@@ -5,7 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from splitproof import hash_split, hash_split_stream, iter_records, write_hash_split_stream
+from splitproof import (
+    hash_split,
+    hash_split_stream,
+    iter_records,
+    verify_hash_split_stream,
+    write_hash_split_stream,
+)
 from splitproof.cli import main
 from splitproof.models import Record
 
@@ -50,6 +56,19 @@ def test_write_hash_split_stream_is_atomic_and_reports_digest(tmp_path: Path) ->
     assert destination.read_text(encoding="utf-8") == "original\n"
 
 
+def test_verify_hash_split_stream_detects_tampering(tmp_path: Path) -> None:
+    destination = tmp_path / "assignments.jsonl"
+    report_path = tmp_path / "report.json"
+    report = write_hash_split_stream(_records(), {"train": 1.0}, destination, seed="x")
+    report_path.write_text(json.dumps(report.to_dict()), encoding="utf-8")
+    assert verify_hash_split_stream(destination, report_path).records == report.records
+    destination.write_text(
+        destination.read_text(encoding="utf-8").replace('"train"', '"test"', 1), encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="does not match"):
+        verify_hash_split_stream(destination, report_path)
+
+
 def test_iter_records_streams_jsonl_and_cli_emits_report(tmp_path: Path) -> None:
     source = tmp_path / "records.jsonl"
     _write_jsonl(source)
@@ -76,6 +95,7 @@ def test_iter_records_streams_jsonl_and_cli_emits_report(tmp_path: Path) -> None
     payload = json.loads(report.read_text(encoding="utf-8"))
     assert payload["records"] == 7
     assert payload["algorithm"] == "record-hash-stream-v1"
+    assert main(["hash-stream-verify", str(assignments), str(report)]) == 0
 
 
 def test_streaming_cli_rejects_non_jsonl(tmp_path: Path) -> None:
@@ -94,3 +114,17 @@ def test_streaming_cli_rejects_non_jsonl(tmp_path: Path) -> None:
         )
         == 2
     )
+
+
+def test_verify_hash_split_stream_rejects_bad_report_and_rows(tmp_path: Path) -> None:
+    assignments = tmp_path / "assignments.jsonl"
+    report = tmp_path / "report.json"
+    assignments.write_text(
+        '{"id":"a","split":"train"}\n{"id":"a","split":"train"}\n', encoding="utf-8"
+    )
+    report.write_text(json.dumps({"algorithm": "wrong"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="unsupported"):
+        verify_hash_split_stream(assignments, report)
+    report.write_text(json.dumps({"algorithm": "record-hash-stream-v1"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate"):
+        verify_hash_split_stream(assignments, report)

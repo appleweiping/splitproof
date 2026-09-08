@@ -39,7 +39,7 @@ from .repeat import (
     stability_report,
 )
 from .reporting import report_json, report_markdown
-from .streaming import write_hash_split_stream
+from .streaming import verify_hash_split_stream, write_hash_split_stream
 from .temporal import TimeInterval, purged_kfold
 
 
@@ -216,6 +216,11 @@ def build_parser() -> argparse.ArgumentParser:
     hash_stream.add_argument("--seed", default="0")
     hash_stream.add_argument("--assignments", type=Path, required=True)
     hash_stream.add_argument("--report", type=Path)
+    hash_verify = commands.add_parser(
+        "hash-stream-verify", help="verify a streamed assignment file against its report"
+    )
+    hash_verify.add_argument("assignments", type=Path)
+    hash_verify.add_argument("report", type=Path)
     leakage = commands.add_parser(
         "leakage-audit", help="find normalized exact duplicates across split boundaries"
     )
@@ -596,6 +601,12 @@ def _run_hash_stream(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_hash_stream_verify(args: argparse.Namespace) -> int:
+    result = verify_hash_split_stream(args.assignments, args.report)
+    print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
+    return 0
+
+
 def _run_compare(args: argparse.Namespace) -> int:
     if args.output is not None:
         _require_distinct_paths(output=args.output, before=args.before, after=args.after)
@@ -657,6 +668,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "repeat-holdout": _run_repeat_holdout,
         "materialize": _run_materialize,
         "hash-stream": _run_hash_stream,
+        "hash-stream-verify": _run_hash_stream_verify,
         "compare": _run_compare,
         "leakage-audit": _run_leakage,
         "near-duplicate-audit": _run_near_duplicate,

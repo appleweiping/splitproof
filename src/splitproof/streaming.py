@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 from collections import Counter
@@ -108,3 +109,46 @@ def write_hash_split_stream(
             os.unlink(temporary)
         raise
     return StreamSplitReport("record-hash-stream-v1", total, dict(counts), digest.hexdigest())
+
+
+def verify_hash_split_stream(assignments: str | Path, report: str | Path) -> StreamSplitReport:
+    """Authenticate a streamed assignment JSONL file against its report."""
+    try:
+        expected = json.loads(Path(report).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError(f"cannot read stream report: {error}") from error
+    if not isinstance(expected, Mapping) or expected.get("algorithm") != "record-hash-stream-v1":
+        raise ValueError("unsupported stream report")
+    digest = hashlib.sha256()
+    counts: Counter[str] = Counter()
+    seen: set[str] = set()
+    total = 0
+    try:
+        with Path(assignments).open("rb") as stream:
+            for raw in stream:
+                digest.update(raw)
+                try:
+                    value = json.loads(raw.decode("utf-8"))
+                except (UnicodeError, json.JSONDecodeError) as error:
+                    raise ValueError(f"invalid assignment JSON at row {total + 1}") from error
+                if not isinstance(value, Mapping) or not isinstance(value.get("id"), str):
+                    raise ValueError(f"assignment row {total + 1} must contain a string id")
+                record_id = value["id"]
+                split = value.get("split")
+                if not isinstance(split, str) or not split:
+                    raise ValueError(f"assignment row {total + 1} must contain a split")
+                if record_id in seen:
+                    raise ValueError(f"duplicate assignment ID: {record_id!r}")
+                seen.add(record_id)
+                counts[split] += 1
+                total += 1
+    except OSError as error:
+        raise ValueError(f"cannot read assignments: {error}") from error
+    actual = StreamSplitReport("record-hash-stream-v1", total, dict(counts), digest.hexdigest())
+    if (
+        expected.get("records") != actual.records
+        or expected.get("counts") != actual.to_dict()["counts"]
+        or expected.get("assignment_digest") != actual.assignment_digest
+    ):
+        raise ValueError("stream assignment report does not match the assignment file")
+    return actual

@@ -298,6 +298,8 @@ record's first normalized label and ignores both weight fields.
   `exact_group_split` / `--algorithm exact-group`; pass `--stratified` to
   include label balance in the exhaustive objective;
 - streaming hash assignments and schema-v1 migration commands are available;
+- `hash-stream-verify` authenticates an assignment JSONL file against its
+  bounded-memory report without requiring the original corpus;
 - pluggable content fingerprint fields.
 
 See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the

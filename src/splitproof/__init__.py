@@ -48,7 +48,12 @@ from .repeat import (
     stability_report,
 )
 from .service import SplitService, create_server
-from .streaming import StreamSplitReport, hash_split_stream, write_hash_split_stream
+from .streaming import (
+    StreamSplitReport,
+    hash_split_stream,
+    verify_hash_split_stream,
+    write_hash_split_stream,
+)
 from .temporal import TemporalFold, TimeInterval, purged_holdout, purged_kfold
 
 __all__ = [
@@ -103,6 +108,7 @@ __all__ = [
     "save_manifest",
     "stability_report",
     "stratified_group_split",
+    "verify_hash_split_stream",
     "verify_manifest",
     "write_hash_split_stream",
     "write_materialized",

@@ -21,6 +21,16 @@ the report includes split counts and a SHA-256 digest of the exact output
 stream. It never emits a manifest because a manifest's dataset fingerprint and
 diagnostics require a complete record inventory.
 
+Authenticate the emitted artifact later, even when the source corpus is no
+longer available:
+
+```bash
+splitproof hash-stream-verify assignments.jsonl stream-report.json
+```
+
+`verify_hash_split_stream` hashes exact UTF-8 lines, rejects malformed or
+duplicate assignment IDs, and checks the declared counts and digest.
+
 ## Python API
 
 ```python
@@ -37,4 +47,3 @@ report = write_hash_split_stream(
 
 Use the regular `splitproof split --algorithm hash` path when a checksummed
 manifest, minimum-count constraints, or sorted output is required.
-

@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Add authenticated `hash-stream-verify` CLI/API checks for streamed assignment artifacts.
+
 - Add bounded exhaustive `exact_group_split` optimization for small grouped
   datasets, exposed through the CLI and local service.
 - Expose exact-group label stratification through `split --stratified`.
