@@ -3,7 +3,8 @@
 `SplitService` exposes deterministic split generation and diagnostics over a
 small loopback-first JSON API. The Python server is created with
 `create_server()` and accepts `POST /v1/dispatch` requests for `split`,
-`kfold`, `temporal_kfold`, and `diagnose` operations.
+`kfold`, `temporal_kfold`, `diagnose`, `repeat_holdout`, and `verify`
+operations.
 
 ```python
 from splitproof import create_server
