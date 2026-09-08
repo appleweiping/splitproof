@@ -132,6 +132,47 @@ def test_split_service_dispatches_stratified_exact_group_algorithm() -> None:
     assert len(response["assignments"]) == 4
 
 
+def test_split_service_dispatches_stratified_kfold() -> None:
+    response = SplitService().dispatch(
+        {
+            "operation": "kfold",
+            "records": [
+                {"id": "a", "group": "one", "label": "x"},
+                {"id": "b", "group": "two", "label": "y"},
+                {"id": "c", "group": "three", "label": "x"},
+                {"id": "d", "group": "four", "label": "y"},
+            ],
+            "folds": 2,
+            "seed": "service",
+            "stratified": True,
+        }
+    )
+    assert response["folds"] == 2
+    assert len(response["assignments"]) == 4
+    assert {item["split"] for item in response["assignments"]} == {"fold-0", "fold-1"}
+
+
+@pytest.mark.parametrize(
+    "field,value,message",
+    [
+        ("folds", True, "folds"),
+        ("seed", None, "seed"),
+        ("stratified", 1, "stratified"),
+        ("max_local_iterations", True, "max_local_iterations"),
+    ],
+)
+def test_split_service_kfold_validates_optional_fields(
+    field: str, value: object, message: str
+) -> None:
+    request: dict[str, object] = {
+        "operation": "kfold",
+        "records": [{"id": "a"}, {"id": "b"}],
+        field: value,
+    }
+    with pytest.raises(ValueError, match=message):
+        SplitService().dispatch(request)
+
+
 def test_split_service_migrates_a_verified_v1_manifest(tmp_path) -> None:
     records = [{"id": "a", "group": "g"}, {"id": "b", "group": "g"}]
     rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))

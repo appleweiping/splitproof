@@ -11,6 +11,7 @@ from typing import Any
 
 from .assigners import balanced_group_split, exact_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
+from .kfold import assign_kfold
 from .manifest import load_manifest, migrate_manifest
 from .models import Assignment, Record
 from .repeat import holdout_stability_report, repeated_group_holdout
@@ -57,6 +58,33 @@ class SplitService:
             else:
                 raise ValueError("algorithm must be hash, balanced, stratified, or exact")
             return {"operation": operation, "assignments": [asdict(item) for item in assignments]}
+        if operation == "kfold":
+            folds = request.get("folds", 5)
+            if isinstance(folds, bool) or not isinstance(folds, int):
+                raise ValueError("folds must be an integer")
+            seed = request.get("seed", "0")
+            if not isinstance(seed, (str, int)) or isinstance(seed, bool):
+                raise ValueError("seed must be a string or integer")
+            stratified = request.get("stratified", False)
+            if not isinstance(stratified, bool):
+                raise ValueError("stratified must be a boolean")
+            max_local_iterations = request.get("max_local_iterations")
+            if max_local_iterations is not None and (
+                isinstance(max_local_iterations, bool) or not isinstance(max_local_iterations, int)
+            ):
+                raise ValueError("max_local_iterations must be an integer or omitted")
+            assignments = assign_kfold(
+                records,
+                folds,
+                seed=seed,
+                stratified=stratified,
+                max_local_iterations=max_local_iterations,
+            )
+            return {
+                "operation": operation,
+                "folds": folds,
+                "assignments": [asdict(item) for item in assignments],
+            }
         if operation == "diagnose":
             assignments_value = request.get("assignments")
             if not isinstance(assignments_value, list):
@@ -112,7 +140,9 @@ class SplitService:
                 raise ValueError("manifest must be a non-empty path string")
             migrated = migrate_manifest(load_manifest(manifest_path), records)
             return {"operation": operation, "manifest": migrated.to_dict()}
-        raise ValueError("operation must be split, diagnose, repeat_holdout, or migrate_manifest")
+        raise ValueError(
+            "operation must be split, kfold, diagnose, repeat_holdout, or migrate_manifest"
+        )
 
 
 def create_server(

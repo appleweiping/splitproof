@@ -306,6 +306,8 @@ record's first normalized label and ignores both weight fields.
   bounded-memory report without requiring the original corpus;
 - pluggable payload fingerprint fields are available through
   `fingerprint_fields` / repeated `--fingerprint-field` options.
+- the loopback `SplitService` exposes the same deterministic group-aware and
+  stratified `kfold` assignment as the CLI for programmatic workflows.
 
 See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the
 [Changelog](CHANGELOG.md). SplitProof is available under the [MIT License](LICENSE).

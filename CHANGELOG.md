@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Expose deterministic group-aware and stratified k-fold assignment through
+  the loopback SplitService API.
 - Make `hash-stream` and `hash-stream-verify` duplicate detection genuinely
   bounded-memory by using temporary SQLite primary-key stores.
 - Add opt-in payload-field dataset fingerprinting for content-integrity-aware

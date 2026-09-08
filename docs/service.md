@@ -2,8 +2,8 @@
 
 `SplitService` exposes deterministic split generation and diagnostics over a
 small loopback-first JSON API. The Python server is created with
-`create_server()` and accepts `POST /v1/dispatch` requests for `split` and
-`diagnose` operations.
+`create_server()` and accepts `POST /v1/dispatch` requests for `split`,
+`kfold`, and `diagnose` operations.
 
 ```python
 from splitproof import create_server
@@ -18,3 +18,8 @@ machine. In addition to `split` and `diagnose`, the `repeat_holdout`
 operation returns group-safe repeated assignments and per-record allocation
 rates, using the same deterministic seed and minimum-count controls as the
 `repeat-holdout` CLI.
+
+The `kfold` operation exposes the same deterministic group-aware and optional
+stratified assignment as the `kfold` CLI. It returns one `fold-<n>` assignment
+per input record and accepts `folds`, `seed`, `stratified`, and
+`max_local_iterations` request fields.
