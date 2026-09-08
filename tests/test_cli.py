@@ -75,6 +75,33 @@ def test_split_verify_and_inspect_end_to_end(tmp_path, capsys) -> None:  # type:
     assert (materialized / "train.jsonl").exists()
 
 
+def test_exact_group_cli_can_include_label_balance(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    data = tmp_path / "exact.jsonl"
+    assignments = tmp_path / "exact.assignments.jsonl"
+    manifest = tmp_path / "exact.manifest.json"
+    write_dataset(data)
+    assert (
+        main(
+            [
+                "split",
+                str(data),
+                "--algorithm",
+                "exact-group",
+                "--stratified",
+                "--ratios",
+                "train=0.5,test=0.5",
+                "--assignments",
+                str(assignments),
+                "--manifest",
+                str(manifest),
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    assert payload["metadata"]["optimizer"] == "exhaustive-stratified-v1"
+
+
 def test_verify_detects_changed_data(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
     data = tmp_path / "data.jsonl"
     assignments = tmp_path / "assignments.jsonl"

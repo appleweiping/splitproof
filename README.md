@@ -295,7 +295,8 @@ record's first normalized label and ignores both weight fields.
 ## Roadmap
 
 - opt-in exact optimization for smaller datasets is available as
-  `exact_group_split` / `--algorithm exact-group`;
+  `exact_group_split` / `--algorithm exact-group`; pass `--stratified` to
+  include label balance in the exhaustive objective;
 - streaming hash assignments and schema-v1 migration commands are available;
 - pluggable content fingerprint fields.
 

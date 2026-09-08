@@ -122,6 +122,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=12,
         help="exact-group search limit (default: 12)",
     )
+    split.add_argument(
+        "--stratified",
+        action="store_true",
+        help="balance labels during exact-group optimization",
+    )
 
     kfold = commands.add_parser("kfold", help="create group-aware k-fold assignments")
     _fields(kfold)
@@ -268,6 +273,8 @@ def _run_split(args: argparse.Namespace) -> int:
         manifest=args.manifest,
     )
     records = _load(args)
+    if args.stratified and args.algorithm not in {"exact-group", "stratified-group"}:
+        raise ValueError("--stratified is only valid with exact-group or stratified-group")
     if args.algorithm == "hash":
         if args.max_local_iterations is not None:
             raise ValueError("--max-local-iterations is only valid for group algorithms")
@@ -281,9 +288,10 @@ def _run_split(args: argparse.Namespace) -> int:
                 records,
                 args.ratios,
                 seed=args.seed,
+                stratified=args.stratified,
                 max_groups=args.max_groups,
             )
-            optimizer = "exhaustive-v1"
+            optimizer = "exhaustive-stratified-v1" if args.stratified else "exhaustive-v1"
         else:
             algorithm = (
                 balanced_group_split if args.algorithm == "group" else stratified_group_split
