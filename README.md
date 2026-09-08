@@ -267,7 +267,9 @@ source before writing a separate schema-v2 manifest. See
   a global optimum.
 - Hash splitting is append-stable, while balanced algorithms may move existing groups when the
   dataset changes. The manifest prevents that from happening silently.
-- Files are loaded into memory. Streaming assignment is a future option for record-hash mode.
+- Balanced and stratified algorithms load their full record set by design;
+  record-hash assignment is available as the bounded `hash-stream` path for
+  JSONL inputs, with `hash-stream-verify` for later authentication.
 
 ## Project layout
 
