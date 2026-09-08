@@ -312,6 +312,8 @@ record's first normalized label and ignores both weight fields.
   configurable gaps, embargoes, group protection, and timestamp fields.
 - the service also exposes checksummed manifest verification with optional
   external assignment checking through `verify`.
+- the service also exposes verified deterministic per-split JSONL output through
+  `materialize`, returning generated paths and refusing unverified manifests.
 
 See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the
 [Changelog](CHANGELOG.md). SplitProof is available under the [MIT License](LICENSE).

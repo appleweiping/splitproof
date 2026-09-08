@@ -305,6 +305,56 @@ def test_split_service_verifies_manifest_and_external_assignments(tmp_path) -> N
     assert response["errors"] == []
 
 
+def test_split_service_materializes_verified_manifest(tmp_path) -> None:
+    records = [{"id": "a", "group": "g1"}, {"id": "b", "group": "g2"}]
+    rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))
+    assignments = (Assignment("a", "train"), Assignment("b", "test"))
+    manifest = create_manifest(
+        rows,
+        assignments,
+        algorithm="hash",
+        algorithm_version="3",
+        seed="service",
+        ratios={"train": 0.5, "test": 0.5},
+    )
+    manifest_path = tmp_path / "manifest.json"
+    save_manifest(manifest, manifest_path)
+    output_dir = tmp_path / "materialized"
+    response = SplitService().dispatch(
+        {
+            "operation": "materialize",
+            "records": records,
+            "manifest": str(manifest_path),
+            "output_dir": str(output_dir),
+        }
+    )
+    assert response["operation"] == "materialize"
+    assert sorted(path.name for path in output_dir.glob("*.jsonl")) == ["test.jsonl", "train.jsonl"]
+    assert sorted(response["files"]) == sorted(str(path) for path in output_dir.glob("*.jsonl"))
+    assert (
+        output_dir.joinpath("train.jsonl").read_text(encoding="utf-8").strip()
+        == '{"group": "g1", "id": "a"}'
+    )
+
+
+@pytest.mark.parametrize(
+    "field,value,message",
+    [("manifest", "", "manifest"), ("output_dir", None, "output_dir")],
+)
+def test_split_service_materialize_validates_paths(
+    tmp_path, field: str, value: object, message: str
+) -> None:
+    request: dict[str, object] = {
+        "operation": "materialize",
+        "records": [],
+        "manifest": str(tmp_path / "manifest.json"),
+        "output_dir": str(tmp_path / "out"),
+    }
+    request[field] = value
+    with pytest.raises(ValueError, match=message):
+        SplitService().dispatch(request)
+
+
 def _write_records(tmp_path, records):  # type: ignore[no-untyped-def]
     path = tmp_path / "records.jsonl"
     path.write_text("\n".join(json.dumps(record) for record in records), encoding="utf-8")

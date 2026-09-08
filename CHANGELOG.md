@@ -10,6 +10,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
   SplitService API, including gap, embargo, and group-protection controls.
 - Expose checksummed manifest verification with optional external assignment
   checking through SplitService.
+- Expose verified deterministic per-split JSONL materialization through
+  SplitService, refusing to write when manifest verification fails.
 - Make `hash-stream` and `hash-stream-verify` duplicate detection genuinely
   bounded-memory by using temporary SQLite primary-key stores.
 - Add opt-in payload-field dataset fingerprinting for content-integrity-aware

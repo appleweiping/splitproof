@@ -3,7 +3,8 @@
 `SplitService` exposes deterministic split generation and diagnostics over a
 small loopback-first JSON API. The Python server is created with
 `create_server()` and accepts `POST /v1/dispatch` requests for `split`,
-`kfold`, `temporal_kfold`, `diagnose`, `repeat_holdout`, and `verify`
+`kfold`, `temporal_kfold`, `diagnose`, `repeat_holdout`, `verify`, and
+`materialize`
 operations.
 
 ```python
@@ -33,3 +34,8 @@ supports `gap_seconds`, `embargo_seconds`, `protect_groups`, and custom
 The `verify` operation accepts a manifest path plus the same `records` array as
 the other operations. It returns a deterministic list of checksum, fingerprint,
 coverage, leakage, fold, and optional external-assignment errors.
+
+The `materialize` operation accepts a verified manifest path and an output
+directory in addition to the records. It rechecks the manifest before writing
+deterministic per-split JSONL files, then returns their paths. A failed
+verification is rejected before any output is written.

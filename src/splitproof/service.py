@@ -14,6 +14,7 @@ from .assigners import balanced_group_split, exact_group_split, hash_split, stra
 from .diagnostics import diagnose
 from .kfold import assign_kfold
 from .manifest import load_manifest, migrate_manifest, verify_manifest
+from .materialize import write_materialized
 from .models import Assignment, Record
 from .repeat import holdout_stability_report, repeated_group_holdout
 from .temporal import TimeInterval, purged_kfold
@@ -203,9 +204,26 @@ class SplitService:
                 external = tuple(Assignment(**item) for item in external_value)
             errors = verify_manifest(load_manifest(manifest_path), records, external)
             return {"operation": operation, "verified": not errors, "errors": list(errors)}
+        if operation == "materialize":
+            manifest_path = request.get("manifest")
+            if not isinstance(manifest_path, str) or not manifest_path.strip():
+                raise ValueError("manifest must be a non-empty path string")
+            output_dir = request.get("output_dir")
+            if not isinstance(output_dir, str) or not output_dir.strip():
+                raise ValueError("output_dir must be a non-empty path string")
+            manifest = load_manifest(manifest_path)
+            errors = verify_manifest(manifest, records)
+            if errors:
+                raise ValueError("manifest verification failed: " + "; ".join(errors))
+            paths = write_materialized(records, manifest, output_dir)
+            return {
+                "operation": operation,
+                "output_dir": output_dir,
+                "files": [str(path) for path in paths],
+            }
         raise ValueError(
             "operation must be split, kfold, temporal_kfold, diagnose, "
-            "repeat_holdout, migrate_manifest, or verify"
+            "repeat_holdout, migrate_manifest, verify, or materialize"
         )
 
 
