@@ -310,6 +310,8 @@ record's first normalized label and ignores both weight fields.
   stratified `kfold` assignment as the CLI for programmatic workflows.
 - the same service exposes purged chronological `temporal_kfold` folds with
   configurable gaps, embargoes, group protection, and timestamp fields.
+- the service also exposes checksummed manifest verification with optional
+  external assignment checking through `verify`.
 
 See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the
 [Changelog](CHANGELOG.md). SplitProof is available under the [MIT License](LICENSE).

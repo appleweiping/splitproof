@@ -13,7 +13,7 @@ from typing import Any
 from .assigners import balanced_group_split, exact_group_split, hash_split, stratified_group_split
 from .diagnostics import diagnose
 from .kfold import assign_kfold
-from .manifest import load_manifest, migrate_manifest
+from .manifest import load_manifest, migrate_manifest, verify_manifest
 from .models import Assignment, Record
 from .repeat import holdout_stability_report, repeated_group_holdout
 from .temporal import TimeInterval, purged_kfold
@@ -191,9 +191,21 @@ class SplitService:
                 raise ValueError("manifest must be a non-empty path string")
             migrated = migrate_manifest(load_manifest(manifest_path), records)
             return {"operation": operation, "manifest": migrated.to_dict()}
+        if operation == "verify":
+            manifest_path = request.get("manifest")
+            if not isinstance(manifest_path, str) or not manifest_path.strip():
+                raise ValueError("manifest must be a non-empty path string")
+            external_value = request.get("assignments")
+            external = None
+            if external_value is not None:
+                if not isinstance(external_value, list):
+                    raise ValueError("assignments must be an array when supplied")
+                external = tuple(Assignment(**item) for item in external_value)
+            errors = verify_manifest(load_manifest(manifest_path), records, external)
+            return {"operation": operation, "verified": not errors, "errors": list(errors)}
         raise ValueError(
             "operation must be split, kfold, temporal_kfold, diagnose, "
-            "repeat_holdout, or migrate_manifest"
+            "repeat_holdout, migrate_manifest, or verify"
         )
 
 

@@ -9,7 +9,7 @@ import pytest
 
 from splitproof import SplitService, create_server
 from splitproof.hashing import HASH_ALGORITHM, HASH_VERSION, data_fingerprint_v1
-from splitproof.manifest import manifest_checksum, save_manifest
+from splitproof.manifest import create_manifest, manifest_checksum, save_manifest
 from splitproof.models import Assignment, SplitManifest
 
 
@@ -274,6 +274,35 @@ def test_split_service_migrates_a_verified_v1_manifest(tmp_path) -> None:
         {"operation": "migrate_manifest", "records": records, "manifest": str(path)}
     )
     assert response["manifest"]["schema_version"] == "2"
+
+
+def test_split_service_verifies_manifest_and_external_assignments(tmp_path) -> None:
+    records = [{"id": "a"}, {"id": "b"}]
+    rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))
+    assignments = (Assignment("a", "train"), Assignment("b", "test"))
+    manifest = create_manifest(
+        rows,
+        assignments,
+        algorithm="hash",
+        algorithm_version="3",
+        seed="service",
+        ratios={"train": 0.5, "test": 0.5},
+    )
+    path = tmp_path / "manifest.json"
+    save_manifest(manifest, path)
+    response = SplitService().dispatch(
+        {
+            "operation": "verify",
+            "records": records,
+            "manifest": str(path),
+            "assignments": [
+                {"record_id": "a", "split": "train"},
+                {"record_id": "b", "split": "test"},
+            ],
+        }
+    )
+    assert response["verified"] is True
+    assert response["errors"] == []
 
 
 def _write_records(tmp_path, records):  # type: ignore[no-untyped-def]

@@ -8,6 +8,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
   the loopback SplitService API.
 - Expose purged chronological temporal k-fold validation through the loopback
   SplitService API, including gap, embargo, and group-protection controls.
+- Expose checksummed manifest verification with optional external assignment
+  checking through SplitService.
 - Make `hash-stream` and `hash-stream-verify` duplicate detection genuinely
   bounded-memory by using temporary SQLite primary-key stores.
 - Add opt-in payload-field dataset fingerprinting for content-integrity-aware
