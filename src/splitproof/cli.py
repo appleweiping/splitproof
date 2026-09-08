@@ -85,6 +85,12 @@ def _fields(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--label-field", default="label")
     parser.add_argument("--weight-field", default="weight")
     parser.add_argument("--group-weight-field", default="group_weight")
+    parser.add_argument(
+        "--fingerprint-field",
+        action="append",
+        default=[],
+        help="repeat to include a top-level payload field in the dataset fingerprint",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -319,6 +325,7 @@ def _run_split(args: argparse.Namespace) -> int:
             "optimizer": optimizer,
             "max_local_iterations": args.max_local_iterations,
         },
+        fingerprint_fields=args.fingerprint_field or None,
     )
     save_assignments(assignments, args.assignments)
     save_manifest(manifest, args.manifest)
@@ -362,6 +369,7 @@ def _run_kfold(args: argparse.Namespace) -> int:
             "optimizer": "greedy-local-v3",
             "max_local_iterations": args.max_local_iterations,
         },
+        fingerprint_fields=args.fingerprint_field or None,
     )
     save_assignments(assignments, args.assignments)
     save_manifest(manifest, args.manifest)

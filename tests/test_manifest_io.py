@@ -18,7 +18,9 @@ from splitproof.constraints import ConstraintError
 from splitproof.hashing import (
     HASH_ALGORITHM,
     HASH_VERSION,
+    data_fingerprint,
     data_fingerprint_v1,
+    normalize_fingerprint_fields,
     stable_digest,
     stable_unit_interval,
 )
@@ -39,6 +41,17 @@ def sample() -> list[Record]:
 def test_versioned_hash_has_a_fixed_cross_machine_vector() -> None:
     assert stable_digest("abc", seed="s", domain="test") == "6fdd3c439301ea99e8c5cb02d2029208"
     assert stable_unit_interval("abc", seed="s", domain="test") == 0.43696953439485464
+
+
+def test_fingerprint_field_validation_and_payload_drift() -> None:
+    rows = [Record("a", payload={"text": "one"})]
+    assert data_fingerprint(rows, ("text",)) != data_fingerprint(
+        [Record("a", payload={"text": "two"})], ("text",)
+    )
+    with pytest.raises(ValueError, match="non-empty"):
+        normalize_fingerprint_fields(("",))
+    with pytest.raises(ValueError, match="core split"):
+        normalize_fingerprint_fields(("id",))
 
 
 def test_manifest_round_trip_and_dataset_verification(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -64,6 +77,35 @@ def test_manifest_round_trip_and_dataset_verification(tmp_path) -> None:  # type
         "missing assignments for 1 records",
         "assignments contain 1 unknown records",
     )
+
+
+def test_payload_fingerprint_fields_are_recorded_and_verified() -> None:
+    rows = [
+        Record("a", group="g", payload={"text": "alpha", "source_id": "one"}),
+        Record("b", group="h", payload={"text": "beta", "source_id": "two"}),
+    ]
+    assignments = balanced_group_split(rows, {"train": 0.5, "test": 0.5}, seed="payload")
+    manifest = create_manifest(
+        rows,
+        assignments,
+        algorithm="group",
+        algorithm_version="3",
+        seed="payload",
+        fingerprint_fields=("text", "source_id"),
+    )
+    assert manifest.metadata["fingerprint_fields"] == ["source_id", "text"]
+    assert verify_manifest(manifest, rows) == ()
+    changed = [rows[0], Record("b", group="h", payload={"text": "changed", "source_id": "two"})]
+    assert "dataset fingerprint mismatch" in verify_manifest(manifest, changed)
+    with pytest.raises(ConstraintError, match="must not contain duplicates"):
+        create_manifest(
+            rows,
+            assignments,
+            algorithm="group",
+            algorithm_version="3",
+            seed="payload",
+            fingerprint_fields=("text", "text"),
+        )
 
 
 def test_manifest_tampering_is_detected() -> None:

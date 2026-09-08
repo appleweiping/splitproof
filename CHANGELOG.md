@@ -4,6 +4,8 @@ All notable changes are documented here. The format follows Keep a Changelog.
 
 ## [Unreleased]
 
+- Add opt-in payload-field dataset fingerprinting for content-integrity-aware
+  manifests and verification.
 - Add authenticated `hash-stream-verify` CLI/API checks for streamed assignment artifacts.
 
 - Add bounded exhaustive `exact_group_split` optimization for small grouped

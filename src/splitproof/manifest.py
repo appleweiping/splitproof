@@ -14,6 +14,7 @@ from .hashing import (
     HASH_VERSION,
     data_fingerprint,
     data_fingerprint_v1,
+    normalize_fingerprint_fields,
     stable_digest,
 )
 from .jsonutil import strict_dumps, strict_loads
@@ -26,7 +27,9 @@ SUPPORTED_ALGORITHMS = frozenset(
     {"hash", "group", "stratified-group", "exact-group", "group-kfold", "stratified-group-kfold"}
 )
 SUPPORTED_ALGORITHM_VERSIONS = frozenset({"1", "2", "3"})
-RESERVED_METADATA = frozenset({"hash_algorithm", "hash_version", "fingerprint_version"})
+RESERVED_METADATA = frozenset(
+    {"hash_algorithm", "hash_version", "fingerprint_version", "fingerprint_fields"}
+)
 
 
 def _fold_semantic_errors(
@@ -75,6 +78,7 @@ def create_manifest(
     seed: str | int,
     ratios: Mapping[str, float] | None = None,
     metadata: Mapping[str, object] | None = None,
+    fingerprint_fields: Iterable[str] | None = None,
 ) -> SplitManifest:
     """Create a checksummed manifest after validating assignment coverage."""
     rows = validate_records(records)
@@ -107,6 +111,10 @@ def create_manifest(
     reserved = sorted(RESERVED_METADATA & supplied_metadata.keys())
     if reserved:
         raise ConstraintError("metadata cannot override reserved fields: " + ", ".join(reserved))
+    try:
+        selected_fingerprint_fields = normalize_fingerprint_fields(fingerprint_fields)
+    except ValueError as error:
+        raise ConstraintError(str(error)) from error
     declared_splits = set(checked_ratios or report.ratios)
     fold_errors = _fold_semantic_errors(algorithm, assigned, declared_splits, supplied_metadata)
     if fold_errors:
@@ -117,13 +125,14 @@ def create_manifest(
         algorithm_version=algorithm_version,
         seed=str(seed),
         created_at=datetime.now(timezone.utc).isoformat(),
-        data_fingerprint=data_fingerprint(rows),
+        data_fingerprint=data_fingerprint(rows, selected_fingerprint_fields),
         ratios=dict(checked_ratios or report.ratios),
         assignments=assigned,
         metadata={
             "hash_algorithm": HASH_ALGORITHM,
             "hash_version": HASH_VERSION,
             "fingerprint_version": FINGERPRINT_VERSION,
+            "fingerprint_fields": list(selected_fingerprint_fields),
             **supplied_metadata,
         },
     )
@@ -210,10 +219,17 @@ def verify_manifest(
         errors.append("unsupported manifest hash algorithm")
     if manifest.metadata.get("hash_version") != HASH_VERSION:
         errors.append("unsupported manifest hash version")
+    try:
+        selected_fingerprint_fields = normalize_fingerprint_fields(
+            manifest.metadata.get("fingerprint_fields", ())
+        )
+    except (TypeError, ValueError) as error:
+        errors.append(f"invalid manifest fingerprint fields: {error}")
+        selected_fingerprint_fields = ()
     if manifest.schema_version == "1":
         expected_fingerprint = data_fingerprint_v1(rows)
     else:
-        expected_fingerprint = data_fingerprint(rows)
+        expected_fingerprint = data_fingerprint(rows, selected_fingerprint_fields)
         if manifest.metadata.get("fingerprint_version") != FINGERPRINT_VERSION:
             errors.append("unsupported manifest fingerprint version")
     if manifest.data_fingerprint != expected_fingerprint:

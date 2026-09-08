@@ -10,6 +10,24 @@ from .models import Record
 
 HASH_ALGORITHM = "blake2b-128"
 HASH_VERSION = "1"
+DEFAULT_FINGERPRINT_FIELDS: tuple[str, ...] = ()
+_CORE_FINGERPRINT_FIELDS = frozenset({"id", "group", "label", "labels", "weight", "group_weight"})
+
+
+def normalize_fingerprint_fields(fields: Iterable[str] | None) -> tuple[str, ...]:
+    """Validate and canonicalize optional payload fields included in fingerprints."""
+
+    if fields is None:
+        return DEFAULT_FINGERPRINT_FIELDS
+    values = tuple(fields)
+    if any(not isinstance(field, str) or not field.strip() for field in values):
+        raise ValueError("fingerprint fields must be non-empty strings")
+    normalized = tuple(sorted(set(values)))
+    if len(normalized) != len(values):
+        raise ValueError("fingerprint fields must not contain duplicates")
+    if set(normalized) & _CORE_FINGERPRINT_FIELDS:
+        raise ValueError("fingerprint fields must name payload fields, not core split fields")
+    return normalized
 
 
 def canonical_key(parts: Iterable[str | None]) -> bytes:
@@ -47,8 +65,9 @@ def data_fingerprint_v1(records: Iterable[Record]) -> str:
     )
 
 
-def data_fingerprint(records: Iterable[Record]) -> str:
-    """Fingerprint v2 split inputs, including labels and both weight types."""
+def data_fingerprint(records: Iterable[Record], fields: Iterable[str] | None = None) -> str:
+    """Fingerprint v2 inputs and optional top-level payload fields."""
+    selected = normalize_fingerprint_fields(fields)
     rows = sorted(
         (
             (
@@ -57,6 +76,7 @@ def data_fingerprint(records: Iterable[Record]) -> str:
                 record.all_labels,
                 record.weight,
                 record.group_weight,
+                tuple(record.payload.get(field) for field in selected),
             )
             for record in records
         ),
