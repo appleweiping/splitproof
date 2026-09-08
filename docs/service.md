@@ -3,7 +3,7 @@
 `SplitService` exposes deterministic split generation and diagnostics over a
 small loopback-first JSON API. The Python server is created with
 `create_server()` and accepts `POST /v1/dispatch` requests for `split`,
-`kfold`, and `diagnose` operations.
+`kfold`, `temporal_kfold`, and `diagnose` operations.
 
 ```python
 from splitproof import create_server
@@ -23,3 +23,8 @@ The `kfold` operation exposes the same deterministic group-aware and optional
 stratified assignment as the `kfold` CLI. It returns one `fold-<n>` assignment
 per input record and accepts `folds`, `seed`, `stratified`, and
 `max_local_iterations` request fields.
+
+The `temporal_kfold` operation accepts ISO-8601 `start` and `end` fields from
+each record payload and returns purged chronological validation folds. It
+supports `gap_seconds`, `embargo_seconds`, `protect_groups`, and custom
+`start_field`/`end_field` names, matching the leakage-aware temporal CLI.

@@ -308,6 +308,8 @@ record's first normalized label and ignores both weight fields.
   `fingerprint_fields` / repeated `--fingerprint-field` options.
 - the loopback `SplitService` exposes the same deterministic group-aware and
   stratified `kfold` assignment as the CLI for programmatic workflows.
+- the same service exposes purged chronological `temporal_kfold` folds with
+  configurable gaps, embargoes, group protection, and timestamp fields.
 
 See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the
 [Changelog](CHANGELOG.md). SplitProof is available under the [MIT License](LICENSE).

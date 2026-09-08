@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -15,6 +16,7 @@ from .kfold import assign_kfold
 from .manifest import load_manifest, migrate_manifest
 from .models import Assignment, Record
 from .repeat import holdout_stability_report, repeated_group_holdout
+from .temporal import TimeInterval, purged_kfold
 
 
 class SplitService:
@@ -85,6 +87,55 @@ class SplitService:
                 "folds": folds,
                 "assignments": [asdict(item) for item in assignments],
             }
+        if operation == "temporal_kfold":
+            start_field = request.get("start_field", "start")
+            end_field = request.get("end_field", "end")
+            if not isinstance(start_field, str) or not start_field.strip():
+                raise ValueError("start_field must be a non-empty string")
+            if not isinstance(end_field, str) or not end_field.strip():
+                raise ValueError("end_field must be a non-empty string")
+            folds = request.get("folds", 5)
+            if isinstance(folds, bool) or not isinstance(folds, int):
+                raise ValueError("folds must be an integer")
+            gap_seconds = request.get("gap_seconds", 0)
+            embargo_seconds = request.get("embargo_seconds", 0)
+            for name, value in (("gap_seconds", gap_seconds), ("embargo_seconds", embargo_seconds)):
+                if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                    raise ValueError(f"{name} must be a non-negative integer")
+            protect_groups = request.get("protect_groups", True)
+            if not isinstance(protect_groups, bool):
+                raise ValueError("protect_groups must be a boolean")
+            intervals: dict[str, TimeInterval] = {}
+            for record in records:
+                start_value = record.payload.get(start_field)
+                end_value = record.payload.get(end_field)
+                if not isinstance(start_value, str) or not isinstance(end_value, str):
+                    raise ValueError(
+                        f"record {record.id!r} requires ISO timestamp strings for start and end"
+                    )
+                try:
+                    start = datetime.fromisoformat(start_value.replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(end_value.replace("Z", "+00:00"))
+                    intervals[record.id] = TimeInterval(start, end)
+                except (TypeError, ValueError) as error:
+                    raise ValueError(f"record {record.id!r} has invalid ISO timestamp") from error
+            temporal_folds = purged_kfold(
+                records,
+                intervals,
+                folds,
+                gap=timedelta(seconds=gap_seconds),
+                embargo=timedelta(seconds=embargo_seconds),
+                protect_groups=protect_groups,
+            )
+            return {
+                "operation": operation,
+                "schema_version": 1,
+                "algorithm": "purged-time-kfold-v1",
+                "gap_seconds": gap_seconds,
+                "embargo_seconds": embargo_seconds,
+                "protect_groups": protect_groups,
+                "folds": [asdict(fold) for fold in temporal_folds],
+            }
         if operation == "diagnose":
             assignments_value = request.get("assignments")
             if not isinstance(assignments_value, list):
@@ -141,7 +192,8 @@ class SplitService:
             migrated = migrate_manifest(load_manifest(manifest_path), records)
             return {"operation": operation, "manifest": migrated.to_dict()}
         raise ValueError(
-            "operation must be split, kfold, diagnose, repeat_holdout, or migrate_manifest"
+            "operation must be split, kfold, temporal_kfold, diagnose, "
+            "repeat_holdout, or migrate_manifest"
         )
 
 

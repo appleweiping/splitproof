@@ -173,6 +173,86 @@ def test_split_service_kfold_validates_optional_fields(
         SplitService().dispatch(request)
 
 
+def test_split_service_dispatches_temporal_kfold() -> None:
+    response = SplitService().dispatch(
+        {
+            "operation": "temporal_kfold",
+            "records": [
+                {
+                    "id": "a",
+                    "group": "one",
+                    "start": "2026-01-01T00:00:00Z",
+                    "end": "2026-01-01T00:00:00Z",
+                },
+                {
+                    "id": "b",
+                    "group": "two",
+                    "start": "2026-01-02T00:00:00Z",
+                    "end": "2026-01-02T00:00:00Z",
+                },
+                {
+                    "id": "c",
+                    "group": "three",
+                    "start": "2026-01-03T00:00:00Z",
+                    "end": "2026-01-03T00:00:00Z",
+                },
+                {
+                    "id": "d",
+                    "group": "four",
+                    "start": "2026-01-04T00:00:00Z",
+                    "end": "2026-01-04T00:00:00Z",
+                },
+            ],
+            "folds": 2,
+            "gap_seconds": 0,
+            "embargo_seconds": 0,
+        }
+    )
+    assert response["algorithm"] == "purged-time-kfold-v1"
+    assert response["protect_groups"] is True
+    assert len(response["folds"]) == 2
+    assert {item for fold in response["folds"] for item in fold["validation"]} == {
+        "a",
+        "b",
+        "c",
+        "d",
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value,message",
+    [
+        ("start_field", 1, "start_field"),
+        ("end_field", "", "end_field"),
+        ("folds", True, "folds"),
+        ("gap_seconds", -1, "gap_seconds"),
+        ("embargo_seconds", True, "embargo_seconds"),
+        ("protect_groups", 1, "protect_groups"),
+    ],
+)
+def test_split_service_temporal_kfold_validates_request(
+    field: str, value: object, message: str
+) -> None:
+    request: dict[str, object] = {
+        "operation": "temporal_kfold",
+        "records": [],
+        field: value,
+    }
+    with pytest.raises(ValueError, match=message):
+        SplitService().dispatch(request)
+
+
+def test_split_service_temporal_kfold_rejects_bad_timestamp() -> None:
+    with pytest.raises(ValueError, match="invalid ISO timestamp"):
+        SplitService().dispatch(
+            {
+                "operation": "temporal_kfold",
+                "records": [{"id": "a", "start": "not-a-time", "end": "2026-01-01T00:00:00Z"}],
+                "folds": 2,
+            }
+        )
+
+
 def test_split_service_migrates_a_verified_v1_manifest(tmp_path) -> None:
     records = [{"id": "a", "group": "g"}, {"id": "b", "group": "g"}]
     rows = tuple(__import__("splitproof").io.load_records(_write_records(tmp_path, records)))
