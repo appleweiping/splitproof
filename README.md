@@ -69,10 +69,12 @@ decrease rule make termination explicit and repeatable.
 
 ## Install
 
-Install the latest source from GitHub:
+These development docs and examples target `feat/whole-repository-alignment`,
+not the older released or merged-main feature set. Install the same development
+branch to reproduce the documented workflows:
 
 ```bash
-python -m pip install "git+https://github.com/appleweiping/splitproof.git"
+python -m pip install "git+https://github.com/appleweiping/splitproof.git@feat/whole-repository-alignment"
 ```
 
 For a source checkout:
