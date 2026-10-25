@@ -1,0 +1,42 @@
+{
+  "rows": 43410,
+  "labels": 28,
+  "near_dup_groups": 42797,
+  "grouping_seconds": 43.02027989999624,
+  "KFold(shuffle=True)": {
+    "label_share_rel_dev_mean": 0.05896993148850528,
+    "label_share_rel_dev_max": 0.3513513513513515,
+    "fold_size_min": 8682,
+    "fold_size_max": 8682,
+    "test_rows_with_near_dup_in_train": 821,
+    "test_rows_with_identical_in_train": 741,
+    "split_seconds": 0.17714700003853068
+  },
+  "MultilabelStratifiedKFold": {
+    "label_share_rel_dev_mean": 0.005450662266263026,
+    "label_share_rel_dev_max": 0.04160043190066278,
+    "fold_size_min": 8645,
+    "fold_size_max": 8710,
+    "test_rows_with_near_dup_in_train": 834,
+    "test_rows_with_identical_in_train": 760,
+    "split_seconds": 7.119636500021443
+  },
+  "StratifiedGroupKFold (first label)": {
+    "label_share_rel_dev_mean": 0.025329444205762153,
+    "label_share_rel_dev_max": 0.2163563171511564,
+    "fold_size_min": 8681,
+    "fold_size_max": 8683,
+    "test_rows_with_near_dup_in_train": 0,
+    "test_rows_with_identical_in_train": 0,
+    "split_seconds": 115.25933739996981
+  },
+  "splitproof NearDupKFold": {
+    "label_share_rel_dev_mean": 0.003790009327258015,
+    "label_share_rel_dev_max": 0.03896103896103888,
+    "fold_size_min": 8682,
+    "fold_size_max": 8682,
+    "test_rows_with_near_dup_in_train": 0,
+    "test_rows_with_identical_in_train": 0,
+    "split_seconds": 2.5300923000322655
+  }
+}

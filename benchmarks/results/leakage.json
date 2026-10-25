@@ -1,0 +1,37 @@
+{
+  "threshold": 0.8,
+  "sms_spam_rows": 5574,
+  "split_80_20": {
+    "random": {
+      "near_dup_leak_mean": 0.14062780269058295,
+      "near_dup_leak_min": 0.13094170403587443,
+      "near_dup_leak_max": 0.1515695067264574,
+      "exact_leak_mean": 0.11766816143497758
+    },
+    "splitproof": {
+      "near_dup_leak_mean": 0.0,
+      "near_dup_leak_min": 0.0,
+      "near_dup_leak_max": 0.0,
+      "exact_leak_mean": 0.0
+    }
+  },
+  "cross_validation": {
+    "KFold(shuffle=True)": {
+      "spam_f1_mean": 0.9341439172845272,
+      "spam_f1_std": 0.01245343202926559,
+      "accuracy_mean": 0.9829573870269138
+    },
+    "NearDupKFold": {
+      "spam_f1_mean": 0.9221597239212919,
+      "spam_f1_std": 0.013380275016012336,
+      "accuracy_mean": 0.9802650328875864
+    }
+  },
+  "emotion_official": {
+    "n_train": 16000,
+    "n_test": 2000,
+    "leaked": 16,
+    "exact": 11,
+    "exact_with_different_label": 11
+  }
+}
