@@ -1,282 +1,196 @@
-# SplitProof
+# splitproof
 
-SplitProof creates reproducible, weighted train/validation/test and k-fold assignments for NLP
-datasets. It treats conversation, document, speaker, patient, or source groups as indivisible
-units, balances multi-label distributions, and writes a checksummed manifest that can later prove
-the exact split inputs and assignments still match.
+splitproof makes train/test splits and cross-validation folds for text datasets that keep
+near-duplicate texts on the same side, so the test set does not quietly contain copies of the
+training data.
 
-[![CI](https://github.com/appleweiping/splitproof/actions/workflows/ci.yml/badge.svg)](https://github.com/appleweiping/splitproof/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/appleweiping/splitproof/actions/workflows/codeql.yml/badge.svg)](https://github.com/appleweiping/splitproof/actions/workflows/codeql.yml)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/appleweiping/splitproof/badge)](https://scorecard.dev/viewer/?uri=github.com/appleweiping/splitproof)
-[![Release](https://img.shields.io/github/v/release/appleweiping/splitproof?sort=semver)](https://github.com/appleweiping/splitproof/releases)
-[![Python](https://img.shields.io/badge/python-3.10--3.14-blue)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-
-SplitProof has no runtime dependencies. It never uses Python's process-randomized built-in
-`hash()` for persisted decisions.
-
-## Why it exists
-
-Randomly splitting utterances can place two turns from one conversation on opposite sides of
-an evaluation boundary. Re-running a notebook can silently produce a different test set. A
-saved list of IDs helps, but it cannot tell whether the dataset changed or the list was edited.
-
-SplitProof makes these concerns explicit:
-
-- stable, versioned BLAKE2b hashing with seed domain separation;
-- record and group weights with group-aware balancing;
-- single-label and multi-label weighted stratification;
-- deterministic greedy placement followed by bounded local improvement;
-- deterministic k-fold assignment;
-- coverage, count/weight/label drift, objective, and group-leakage diagnostics;
-- a dataset fingerprint plus whole-manifest checksum;
-- JSON and JSONL input, JSONL assignments, and Markdown/JSON reports.
-
-## How it works
-
-```mermaid
-flowchart LR
-    A[JSON / JSONL records] --> B[Validate IDs, groups, labels, weights]
-    B --> C{Algorithm}
-    C -->|hash| D[Stable record hash]
-    C -->|group| E[Count + weight-balanced groups]
-    C -->|stratified-group| F[Count + weight + multi-label groups]
-    D --> G[Assignments]
-    E --> G
-    F --> G
-    G --> H[Diagnostics]
-    G --> I[Checksummed manifest]
-    A --> I
-    I --> J[Future verification]
+```console
+$ splitproof audit emotion-train.parquet emotion-test.parquet --examples 3
+train: 16000 rows, test: 2000 rows
+near-duplicate threshold: Jaccard >= 0.80 on character 5-grams
+test rows with a near-duplicate in train: 16 (0.8%)
+  identical after normalization: 11
+  similar but not identical:     5
+examples:
+  0.93  test  "i get scared i feel ignored i feel happy i get silly i choke on my ow..."
+        train "i get scared i feel ignored i feel happy i get silly i choke on my ow..."
+  0.89  test  "i did not care much about the number of viewers and the viewer rating..."
+        train "i did not care much about the number of viewers and the viewer rating..."
+  0.87  test  "i am feeling very petty right now"
+        train "im feeling very petty right now"
 ```
 
-The group algorithms sort indivisible groups by effective weight, record weight, size, and
-weighted label rarity. Greedy placement minimizes one documented scale-free objective. A bounded
-local search then accepts only strictly improving single-group moves and, for at most 32 groups,
-pair swaps. Stable BLAKE2 digests break equal-score ties. The finite iteration limit and strict
-decrease rule make termination explicit and repeatable.
+That is the official train/test split of [dair-ai/emotion](https://huggingface.co/datasets/dair-ai/emotion).
+All 11 identical pairs have a *different* label in train than in test.
+
+## Why
+
+Public text datasets are full of repeats: spam templates, retweets, boilerplate replies, the
+same Reddit comment posted twice. A random split scatters the copies across train and test, the
+model gets credit for remembering them, and the score you report is a little too good.
+
+On the [SMS Spam Collection](https://huggingface.co/datasets/ucirvine/sms_spam) (5,574 messages,
+only 5,159 distinct after lowercasing and collapsing whitespace) a random 80/20 split puts a near-duplicate of a training
+message into **14.1%** of the test set (13.1–15.2% over five seeds); 11.8% are identical after
+normalization. A splitproof split has none:
+
+| 80/20 split, 5 seeds | test rows with a near-duplicate in train | identical after normalization |
+|---|---:|---:|
+| random | 14.1% (13.1–15.2%) | 11.8% |
+| splitproof | 0.0% | 0.0% |
+
+With TF-IDF + logistic regression and 5-fold cross-validation, spam F1 drops from
+0.934 ± 0.013 (`KFold(shuffle=True)`) to 0.922 ± 0.013 (`NearDupKFold`). Not dramatic, but the
+second number is the one I would believe.
 
 ## Install
 
-Install the latest source from GitHub:
-
 ```bash
-python -m pip install "git+https://github.com/appleweiping/splitproof.git"
+pip install "splitproof[sklearn,parquet] @ git+https://github.com/appleweiping/splitproof"
 ```
 
-For a source checkout:
+The only required dependency is NumPy. The `sklearn` extra is for the examples below and
+`parquet` adds pyarrow for reading `.parquet` files. Python 3.10 or newer.
 
-```bash
-python -m pip install -e ".[dev]"
-```
+## Use it with scikit-learn
 
-Python 3.10 through 3.14 are supported.
-
-## Quick start
-
-Each input row needs a unique `id`. `group`, `label`, `weight`, and `group_weight` are optional for
-ordinary splits. A label may be one scalar or an array; stratified operations require at least one
-label per row; an empty label array is therefore valid only for unstratified operations. Record
-weights default to `1.0`. Both weight fields must be finite, strictly positive numbers (JSON
-booleans are not numbers here). A supplied group weight is counted once for the indivisible group,
-and all supplied values for the same named group must agree:
-
-```json
-{"id":"turn-001","group":"conversation-01","label":["question","urgent"],"weight":2.0,"group_weight":3.0,"text":"Where is my order?"}
-{"id":"turn-002","group":"conversation-01","label":["answer"],"weight":1.0,"group_weight":3.0,"text":"It ships today."}
-```
-
-[`examples/weighted_multilabel.jsonl`](examples/weighted_multilabel.jsonl) is a complete runnable
-version of this schema.
-
-Create an order-independent, stratified group split:
-
-```bash
-splitproof split examples/support_messages.jsonl \
-  --algorithm stratified-group \
-  --ratios train=0.6,validation=0.2,test=0.2 \
-  --seed release-2026-09 \
-  --assignments support.assignments.jsonl \
-  --manifest support.manifest.json
-```
-
-Output excerpt from the bundled example:
-
-```text
-# SplitProof diagnostics
-
-Status: **PASS**
-
-| Split | Records | Record ratio | Record weight | Weight ratio | Group-weight ratio |
-|---|---:|---:|---:|---:|---:|
-| `test` | 2 | 0.2000 | 2.0000 | 0.2000 | 0.2000 |
-| `train` | 6 | 0.6000 | 6.0000 | 0.6000 | 0.6000 |
-| `validation` | 2 | 0.2000 | 2.0000 | 0.2000 | 0.2000 |
-
-Balance deviations:
-
-- record count: `0.000000`
-- record weight: `0.000000`
-- effective group weight: `0.000000`
-- per-label weight: `0.000000`
-- optimizer objective: `0.00000000`
-
-Leaking groups: `0`
-Missing record IDs: `0`
-Unexpected record IDs: `0`
-```
-
-Before training or evaluation later, verify the manifest against current data and explicitly
-compare the external assignments file that the downstream job will consume:
-
-```bash
-splitproof verify examples/support_messages.jsonl \
-  --manifest support.manifest.json \
-  --assignments support.assignments.jsonl
-```
-
-Successful verification checks the manifest checksum, dataset fingerprint, coverage, duplicate
-assignments, declared split names, algorithm-specific group rules, and—when `--assignments` is
-provided—the external file item by item. Without that option, no external assignments file is
-read or claimed to be verified. Verification exits nonzero and explains every detected mismatch.
-Input, assignment, manifest, and report paths must have distinct filesystem identities whenever
-they play different CLI roles, so a command cannot silently overwrite its own evidence or source
-dataset.
-
-## CLI reference
-
-### `split`
-
-Algorithms:
-
-| Algorithm | Groups stay together | Weighted labels balanced | Existing rows stable after append |
-|---|:---:|:---:|:---:|
-| `hash` | No | No | Yes |
-| `group` | Yes | No | No |
-| `stratified-group` | Yes | Yes, best effort | No |
-
-Use `--id-field`, `--group-field`, and `--label-field` for other schemas. Ratios must be finite,
-strictly positive, uniquely named, and sum to one within `1e-9`. Split names are sorted before
-hash intervals are constructed, so mapping or CLI ordering does not affect assignments.
-`--weight-field` and `--group-weight-field` select custom weight columns.
-Repeat every custom field mapping on `verify` and `inspect` so the reconstructed records match the
-manifest fingerprint.
-
-Group algorithms accept `--max-local-iterations N`. Omitting it selects the deterministic bound
-`min(200, 2 * number_of_groups)`; `0` exposes the greedy-only baseline. Record-hash mode rejects
-this option because it has no optimization phase.
-
-The optional `expected_ratios` argument to `diagnose()` uses the same finite, positive,
-sum-to-one validation as assignment ratios, so a diagnostic report cannot silently contain a
-non-finite objective.
-
-### `kfold`
-
-```bash
-splitproof kfold examples/support_messages.jsonl --folds 5 --stratified \
-  --seed experiment-4 --assignments folds.jsonl --manifest folds.manifest.json
-```
-
-The number of folds cannot exceed the number of indivisible groups.
-
-### `verify` and `inspect`
-
-```bash
-splitproof inspect examples/support_messages.jsonl --manifest support.manifest.json
-splitproof inspect examples/support_messages.jsonl --manifest support.manifest.json \
-  --format json --output diagnostics.json
-```
-
-`inspect` first performs the same manifest and dataset integrity checks as `verify`; it never
-prints a passing diagnostic report for a checksum or fingerprint mismatch.
-
-## Python API
+`NearDupKFold` follows the scikit-learn splitter protocol, so it drops into `cross_val_score`,
+`cross_validate`, `GridSearchCV` and friends:
 
 ```python
-from splitproof import Record, create_manifest, stratified_group_split, verify_manifest
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import cross_val_score
+from sklearn.pipeline import make_pipeline
+from splitproof import NearDupKFold
 
-records = [
-    Record("m1", group="thread-a", labels=("question", "urgent"), weight=2),
-    Record("m2", group="thread-a", labels=("answer",), weight=1),
-    Record("m3", group="thread-b", labels=("question",), weight=1.5),
-]
-ratios = {"train": 0.67, "test": 0.33}
-assignments = stratified_group_split(records, ratios, seed="v1")
-manifest = create_manifest(
-    records,
-    assignments,
-    algorithm="stratified-group",
-    algorithm_version="3",
-    seed="v1",
-    ratios=ratios,
-)
-assert verify_manifest(manifest, records) == ()
+model = make_pipeline(TfidfVectorizer(), LogisticRegression(max_iter=1000))
+scores = cross_val_score(model, texts, labels, cv=NearDupKFold(n_splits=5, threshold=0.8))
 ```
 
-`minimum_counts={"train": 1, "test": 1}` can be supplied to split functions when empty
-partitions must be rejected. An impossible minimum raises `ConstraintError`; SplitProof never
-quietly violates that explicit constraint.
+- `X` can be the list of texts itself (as in a TF-IDF pipeline). If `X` is a feature matrix,
+  pass the raw texts with `NearDupKFold(texts=texts)`.
+- `y` can be class labels, a multi-label indicator matrix, or a list of label lists. Folds are
+  balanced so every label's share in each fold stays close to the full dataset.
+- `groups` (for example conversation or author IDs) are merged with the near-duplicate groups:
+  rows linked by either never end up on different sides.
 
-## Reproducibility guarantees
+For one fixed split instead of folds:
 
-For a fixed algorithm version, seed, ratios, and set of
-`(id, group, normalized labels, record weight, group weight)` records:
+```python
+from splitproof import assign_splits, leakage_report
 
-1. Input row order does not affect assignments.
-2. Python version, process hash seed, locale, and machine do not affect persistent hashes.
-3. Group-aware algorithms never split a non-null group.
-4. A changed ID, group, label set, record weight, group weight, assignment, option, or metadata
-   value invalidates a schema-v2 verification.
-5. Record-hash assignment is append-stable for existing IDs.
+ratios = {"train": 0.8, "validation": 0.1, "test": 0.1}
+df["split"] = assign_splits(df.text, df.label, ratios=ratios)
 
-The manifest fingerprints normalized split and balance inputs. Hash assignment itself ignores
-weights, but its schema-v2 manifest still protects the weight diagnostics recorded for that split.
-Changes to text or other payload fields do not invalidate it. If content integrity matters,
-derive IDs from content or record a separate content checksum in your data pipeline. Details are in
-[Reproducibility](docs/reproducibility.md).
-Legacy users should follow the explicit [schema-v1 migration guide](docs/migration-v2.md) rather
-than replacing a published manifest in place.
-
-## Constraints and honest limitations
-
-- Indivisible groups can make exact ratios or exact per-label proportions mathematically
-  impossible. Group algorithms return a documented deterministic best effort.
-- Multi-label balance is best effort when rare labels are concentrated in indivisible groups.
-- The greedy-plus-local optimizer favors predictable runtime and explainability; it does not claim
-  a global optimum.
-- Hash splitting is append-stable, while balanced algorithms may move existing groups when the
-  dataset changes. The manifest prevents that from happening silently.
-- Files are loaded into memory. Streaming assignment is a future option for record-hash mode.
-
-## Project layout
-
-```text
-src/splitproof/       library and CLI
-tests/                unit and end-to-end tests
-examples/             small synthetic runnable dataset
-docs/                 architecture and reproducibility contract
-benchmarks/           fixed quality benchmark and committed v0.2 result
-.github/workflows/    Python 3.10-3.14 CI
+# check any existing split
+report = leakage_report(train_texts, test_texts, threshold=0.8)
+print(report.leaked, report.fraction)
 ```
 
-## Reproducible quality benchmark
+`near_duplicate_groups(texts)` returns the group ID of every text if you want to feed it to
+`GroupKFold` or `StratifiedGroupKFold` yourself.
 
-Run `python benchmarks/compare_methods.py` to reproduce
-[`results-v0.2.json`](benchmarks/results-v0.2.json). The fixed 150-record corpus compares a seeded
-random group baseline, record hashing, the released v2 count/single-label greedy method, the v3
-greedy stage, and the full v3 optimizer. In the committed run, v3 greedy scores `0.0229607081`
-versus v2's `0.1200373454`; local improvement reduces v3 further to `0.0083414534`. All group-aware
-variants have zero group leakage and identical assignments after input reversal. The benchmark
-reports quality rather than wall-clock time so its artifact is stable across machines.
-Because v2 had no multi-label or weight model, its benchmark adapter explicitly selects each
-record's first normalized label and ignores both weight fields.
+## Command line
 
-## Roadmap
+`splitproof split` adds a `split` (or `fold`) column; `splitproof audit` checks a split. Both read
+and write `.jsonl`, `.json`, `.csv`, `.tsv` and `.parquet`.
 
-- opt-in exact optimization for smaller datasets;
-- streaming fingerprints and hash assignments;
-- manifest schema migration commands;
-- pluggable content fingerprint fields.
+```console
+$ splitproof split sms.parquet --text-field sms --label-field label -o sms.split.jsonl
+5574 rows -> 5031 groups (near-duplicate threshold 0.80)
+rows sharing a group with another row: 890, largest group: 30 rows
+split           rows   share           0           1
+train           4459   80.0%       86.6%       13.4%
+test            1115   20.0%       86.6%       13.4%
+(all)           5574  100.0%       86.6%       13.4%
+wrote sms.split.jsonl
+$ splitproof audit sms.split.jsonl --text-field sms
+train: 4459 rows, test: 1115 rows
+near-duplicate threshold: Jaccard >= 0.80 on character 5-grams
+test rows with a near-duplicate in train: 0 (0.0%)
+  identical after normalization: 0
+  similar but not identical:     0
+```
 
-See [Architecture](docs/architecture.md), [Contributing](CONTRIBUTING.md), and the
-[Changelog](CHANGELOG.md). SplitProof is available under the [MIT License](LICENSE).
+Useful options: `--ratios train=0.8,validation=0.1,test=0.1`, `--folds 5`,
+`--group-field conversation_id`, `--threshold 0.9`. `audit` takes one file with a split column or
+two files (train, test), exits with status 1 when the leaked share is above `--max-leak`
+(default 0), and prints JSON with `--json`, so it can run in CI.
+
+## How it works
+
+1. Each text is normalized (NFKC, case-folded, punctuation turned into spaces) and cut into
+   character 5-grams.
+2. MinHash signatures (128 hash functions) and LSH banding propose candidate pairs. The band
+   layout is picked so a pair exactly at the threshold is found with at least 98% probability.
+3. Every candidate is checked with the exact Jaccard similarity of the two 5-gram sets. Pairs at
+   or above the threshold are linked, and groups are the connected components.
+4. Whole groups are assigned to splits: largest and rarest-label groups first, each to the split
+   where it reduces the squared gap between actual and target shares (rows and every label) the
+   most, then single-group moves while they keep lowering that gap.
+
+Character 5-grams catch reworded copies, typos and changed numbers, not paraphrases. If two texts
+mean the same thing with different words, splitproof will not see it.
+
+## Benchmark: 5 folds on GoEmotions
+
+The train split of [GoEmotions](https://huggingface.co/datasets/google-research-datasets/go_emotions)
+(43,410 Reddit comments, 28 labels, 1–3 labels each). "Label-share deviation" is
+|share of a label in a fold − share in the whole dataset| / share in the whole dataset, over all
+folds and labels.
+
+| splitter | mean label-share deviation | worst | test rows with a near-duplicate in train (identical) | split time |
+|---|---:|---:|---:|---:|
+| scikit-learn `KFold(shuffle=True)` | 5.90% | 35.1% | 821 (741) | 0.2 s |
+| iterative-stratification `MultilabelStratifiedKFold` | 0.55% | 4.2% | 834 (760) | 7.1 s |
+| scikit-learn `StratifiedGroupKFold`, near-dup groups, first label only | 2.53% | 21.6% | 0 (0) | 115 s + grouping |
+| splitproof `NearDupKFold` | 0.38% | 3.9% | 0 (0) | 2.5 s + grouping |
+
+Finding the near-duplicate groups took 43 s on a 16-thread desktop that was busy with other jobs
+(about 12 s when it was quieter). Leakage is measured with splitproof's own detector at Jaccard
+0.8, so the zero for the two group-aware rows is by construction; the "identical" counts do not
+depend on the detector.
+
+Reproduce both benchmarks (downloads about 4 MB from the Hugging Face Hub, cached in
+`~/.cache/splitproof`):
+
+```bash
+git clone https://github.com/appleweiping/splitproof && cd splitproof
+pip install -e ".[bench]"
+python benchmarks/leakage.py      # SMS Spam, emotion
+python benchmarks/multilabel.py   # GoEmotions
+```
+
+Raw numbers are in [`benchmarks/results/`](benchmarks/results/).
+
+## Why not ...
+
+- **`GroupKFold` / `StratifiedGroupKFold`**: they are the right tools once you have groups.
+  splitproof's job is to make the groups from the text. `StratifiedGroupKFold` also takes only
+  one label per row, and its assignment step was about 45× slower than `NearDupKFold`'s on
+  GoEmotions.
+- **iterative-stratification**: good multi-label balance, but no notion of groups, so duplicates
+  land on both sides.
+- **Deduplicating first** (datasketch, text-dedup, `drop_duplicates`): fine if you want the copies
+  gone. Often you don't: the duplicates are part of the real distribution, or they carry
+  conflicting labels you want to look at. Grouping keeps every row and still makes the test
+  set honest.
+
+## Limitations
+
+- Everything is in memory. Tens of thousands of short texts take tens of seconds; I have not
+  tried millions.
+- LSH can miss a pair that is barely above the threshold (at most 2% at exactly the threshold).
+- Long texts that share a large boilerplate block (headers, signatures, licenses) will be grouped
+  together. Strip the boilerplate first or raise the threshold.
+- Very large duplicate clusters make exact split ratios impossible; the summary table shows what
+  you actually got.
+
+Related tools: [corpusledger](https://github.com/appleweiping/corpusledger) diffs two versions of
+a dataset, [turnscope](https://github.com/appleweiping/turnscope) lints chat fine-tuning data,
+[metricguard](https://github.com/appleweiping/metricguard) and
+[promptwitness](https://github.com/appleweiping/promptwitness) cover metric edge cases and prompt
+changes.
+
+MIT License. Version 0.2 (weighted splits with checksummed manifests) is under the `v0.2.0` tag.

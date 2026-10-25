@@ -7,5 +7,4 @@ authors:
     given-names: Weiping
 repository-code: "https://github.com/appleweiping/splitproof"
 license: MIT
-version: 0.2.0
-date-released: 2026-08-31
+version: 0.3.0
