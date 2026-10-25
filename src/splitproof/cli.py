@@ -1,295 +1,285 @@
-"""Command-line interface for reproducible splitting workflows."""
+"""Command line: ``splitproof audit`` and ``splitproof split``."""
 
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-from collections.abc import Sequence
-from itertools import combinations
-from pathlib import Path
+from collections import Counter
+from collections.abc import Hashable, Sequence
+from typing import Any
+
+import numpy as np
 
 from . import __version__
-from .assigners import (
-    ALGORITHM_VERSION,
-    balanced_group_split,
-    hash_split,
-    stratified_group_split,
-)
-from .diagnostics import diagnose
-from .io import load_assignments, load_records, save_assignments
-from .kfold import assign_kfold
-from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
-from .reporting import report_json, report_markdown
+from .assign import assign_groups
+from .audit import leakage_report
+from .io import read_rows, write_rows
+from .neardup import near_duplicate_groups
+from .splitters import merge_groups
 
 
 def _ratios(value: str) -> dict[str, float]:
+    result: dict[str, float] = {}
     try:
-        result: dict[str, float] = {}
         for part in value.split(","):
             name, ratio = part.split("=", 1)
-            normalized_name = name.strip()
-            if normalized_name in result:
-                raise argparse.ArgumentTypeError(f"duplicate split ratio name {normalized_name!r}")
-            result[normalized_name] = float(ratio)
-    except argparse.ArgumentTypeError:
-        raise
-    except (TypeError, ValueError) as error:
-        raise argparse.ArgumentTypeError("expected NAME=RATIO pairs separated by commas") from error
-    if not result:
-        raise argparse.ArgumentTypeError("at least one ratio is required")
+            name = name.strip()
+            if not name or name in result:
+                raise ValueError
+            result[name] = float(ratio)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "expected NAME=RATIO pairs such as train=0.8,validation=0.1,test=0.1"
+        ) from None
+    if abs(sum(result.values()) - 1.0) > 1e-6 or min(result.values()) <= 0:
+        raise argparse.ArgumentTypeError("ratios must be positive and sum to 1")
     return result
 
 
-def _fields(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("input", type=Path, help="JSON array or JSONL dataset")
-    parser.add_argument("--id-field", default="id")
-    parser.add_argument("--group-field", default="group")
-    parser.add_argument("--label-field", default="label")
-    parser.add_argument("--weight-field", default="weight")
-    parser.add_argument("--group-weight-field", default="group_weight")
+def _threshold(value: str) -> float:
+    number = float(value)
+    if not 0.0 < number <= 1.0:
+        raise argparse.ArgumentTypeError("threshold must be in (0, 1]")
+    return number
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Build the public argument parser."""
     parser = argparse.ArgumentParser(
         prog="splitproof",
-        description="Reproducible NLP dataset splits with verifiable manifests.",
+        description="Find near-duplicate leakage between splits, and make splits without it.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    split = commands.add_parser("split", help="create train/validation/test assignments")
-    _fields(split)
-    split.add_argument(
-        "--ratios",
-        type=_ratios,
-        default={"train": 0.8, "validation": 0.1, "test": 0.1},
+    audit = commands.add_parser(
+        "audit",
+        help="count test rows that have a near-duplicate in train",
+        description="Count test rows that have an exact or near-duplicate in the training data. "
+        "Give either one file with a split column or two files (train, test).",
     )
-    split.add_argument(
-        "--algorithm",
-        choices=("hash", "group", "stratified-group"),
-        default="stratified-group",
+    audit.add_argument("data", nargs="+", help="DATA with a split column, or TRAIN TEST")
+    audit.add_argument("--text-field", default="text")
+    audit.add_argument("--split-field", default="split")
+    audit.add_argument(
+        "--train", default="train", help="split value(s) treated as training, comma separated"
     )
-    split.add_argument("--seed", default="0")
-    split.add_argument("--assignments", type=Path, required=True)
-    split.add_argument("--manifest", type=Path, required=True)
-    split.add_argument(
-        "--max-local-iterations",
-        type=int,
-        help="local-improvement limit for group algorithms; default is deterministic auto",
+    audit.add_argument(
+        "--test", default="test", help="split value(s) treated as test, comma separated"
     )
+    audit.add_argument("--threshold", type=_threshold, default=0.8)
+    audit.add_argument("--examples", type=int, default=5, help="number of examples to print")
+    audit.add_argument(
+        "--max-leak",
+        type=float,
+        default=0.0,
+        help="exit 1 if the leaked share is above this (0..1)",
+    )
+    audit.add_argument("--json", action="store_true", help="print a JSON report instead of text")
 
-    kfold = commands.add_parser("kfold", help="create group-aware k-fold assignments")
-    _fields(kfold)
-    kfold.add_argument("--folds", type=int, default=5)
-    kfold.add_argument("--seed", default="0")
-    kfold.add_argument("--stratified", action="store_true")
-    kfold.add_argument("--assignments", type=Path, required=True)
-    kfold.add_argument("--manifest", type=Path, required=True)
-    kfold.add_argument(
-        "--max-local-iterations",
-        type=int,
-        help="local-improvement limit; use 0 for greedy-only placement",
+    split = commands.add_parser(
+        "split",
+        help="assign rows to splits or folds, keeping near-duplicates together",
+        description="Group near-duplicate texts, then assign whole groups to splits so that "
+        "split sizes and label shares match the targets.",
     )
-
-    verify = commands.add_parser("verify", help="verify a manifest against current data")
-    _fields(verify)
-    verify.add_argument("--manifest", type=Path, required=True)
-    verify.add_argument(
-        "--assignments",
-        type=Path,
-        help="also compare an external assignments JSONL file with the manifest",
+    split.add_argument("data")
+    split.add_argument(
+        "-o", "--output", required=True, help="output file (.jsonl, .json, .csv, .tsv)"
     )
-
-    inspect = commands.add_parser("inspect", help="inspect manifest diagnostics")
-    _fields(inspect)
-    inspect.add_argument("--manifest", type=Path, required=True)
-    inspect.add_argument("--format", choices=("json", "markdown"), default="markdown")
-    inspect.add_argument("--output", type=Path)
+    split.add_argument("--text-field", default="text")
+    split.add_argument(
+        "--label-field", help="class label, or a list of labels for multi-label data"
+    )
+    split.add_argument(
+        "--group-field", help="rows sharing this value stay together (e.g. a conversation ID)"
+    )
+    target = split.add_mutually_exclusive_group()
+    target.add_argument(
+        "--ratios", type=_ratios, help="for example train=0.8,validation=0.1,test=0.1"
+    )
+    target.add_argument(
+        "--folds", type=int, help="write a fold number 0..K-1 instead of split names"
+    )
+    split.add_argument(
+        "--column", help="name of the added column (default: split, or fold with --folds)"
+    )
+    split.add_argument("--threshold", type=_threshold, default=0.8)
+    split.add_argument("--seed", type=int, default=0)
     return parser
 
 
-def _load(args: argparse.Namespace):  # type: ignore[no-untyped-def]
-    return load_records(
-        args.input,
-        id_field=args.id_field,
-        group_field=args.group_field,
-        label_field=args.label_field,
-        weight_field=args.weight_field,
-        group_weight_field=args.group_weight_field,
-    )
+def _texts(rows: Sequence[dict[str, Any]], field: str, source: str) -> list[str]:
+    texts = []
+    for number, row in enumerate(rows, 1):
+        value = row.get(field)
+        if not isinstance(value, str):
+            raise ValueError(f"{source}: row {number} has no string field {field!r}")
+        texts.append(value)
+    return texts
 
 
-def _paths_collide(left: Path, right: Path) -> bool:
-    """Return whether two CLI paths resolve to the same filesystem entry."""
-    if left.resolve(strict=False) == right.resolve(strict=False):
-        return True
-    if left.exists() and right.exists():
-        return left.samefile(right)
-    return False
+def _labels(rows: Sequence[dict[str, Any]], field: str) -> list[tuple[Hashable, ...]]:
+    result: list[tuple[Hashable, ...]] = []
+    for row in rows:
+        value = row.get(field)
+        if value is None or value == "":
+            result.append(())
+        elif isinstance(value, list):
+            result.append(
+                tuple(
+                    json.dumps(item) if isinstance(item, (dict, list)) else item for item in value
+                )
+            )
+        else:
+            result.append((value,))
+    return result
 
 
-def _require_distinct_paths(**paths: Path | None) -> None:
-    """Reject ambiguous CLI roles before any output file can be written."""
-    present = [(name, path) for name, path in paths.items() if path is not None]
-    for (left_name, left), (right_name, right) in combinations(present, 2):
-        assert left is not None and right is not None
-        if _paths_collide(left, right):
-            raise ValueError(f"{left_name} and {right_name} paths must be different")
+def _group_key(value: Any) -> Hashable:
+    if value is None or value == "":
+        return None
+    return json.dumps(value, sort_keys=True) if isinstance(value, (dict, list)) else str(value)
+
+
+def _short(text: str, width: int = 72) -> str:
+    flat = " ".join(text.split())
+    return json.dumps(flat if len(flat) <= width else flat[: width - 3] + "...", ensure_ascii=False)
+
+
+def _run_audit(args: argparse.Namespace) -> int:
+    if len(args.data) == 2:
+        train_rows, test_rows = read_rows(args.data[0]), read_rows(args.data[1])
+        train = _texts(train_rows, args.text_field, args.data[0])
+        test = _texts(test_rows, args.text_field, args.data[1])
+    elif len(args.data) == 1:
+        rows = read_rows(args.data[0])
+        train_names = {name.strip() for name in args.train.split(",")}
+        test_names = {name.strip() for name in args.test.split(",")}
+        values = Counter(str(row.get(args.split_field)) for row in rows)
+        if not any(name in values for name in test_names):
+            seen = ", ".join(sorted(values)) or "none"
+            raise ValueError(
+                f"no rows with {args.split_field} in {sorted(test_names)}; values found: {seen}"
+            )
+        train = _texts(
+            [r for r in rows if str(r.get(args.split_field)) in train_names],
+            args.text_field,
+            args.data[0],
+        )
+        test = _texts(
+            [r for r in rows if str(r.get(args.split_field)) in test_names],
+            args.text_field,
+            args.data[0],
+        )
+    else:
+        raise ValueError("give one file with a split column, or two files: TRAIN TEST")
+    report = leakage_report(train, test, args.threshold)
+    if args.json:
+        print(json.dumps(report.to_dict(), indent=2))
+    else:
+        print(f"train: {report.n_train} rows, test: {report.n_test} rows")
+        print(f"near-duplicate threshold: Jaccard >= {report.threshold:.2f} on character 5-grams")
+        print(f"test rows with a near-duplicate in train: {report.leaked} ({report.fraction:.1%})")
+        print(f"  identical after normalization: {report.exact}")
+        print(f"  similar but not identical:     {report.leaked - report.exact}")
+        shown = sorted(report.pairs, key=lambda pair: (pair.similarity >= 1.0, -pair.similarity))
+        if shown and args.examples > 0:
+            print("examples:")
+            for pair in shown[: args.examples]:
+                print(f"  {pair.similarity:.2f}  test  {_short(test[pair.right])}")
+                print(f"        train {_short(train[pair.left])}")
+    return 1 if report.fraction > args.max_leak else 0
+
+
+def _summary(
+    names: Sequence[str], assigned: np.ndarray, labels: list[tuple[Hashable, ...]] | None
+) -> list[str]:
+    total = len(assigned)
+    overall: Counter[Hashable] = Counter()
+    if labels is not None:
+        for row_labels in labels:
+            overall.update(set(row_labels))
+    few = labels is not None and 0 < len(overall) <= 4
+    columns = sorted(overall, key=str) if few else []
+    header = f"{'split':<12}{'rows':>8}{'share':>8}"
+    header += "".join(f"{str(label)[:10]:>12}" for label in columns)
+    if labels is not None and not few:
+        header += f"{'worst label gap':>17}"
+    lines = [header]
+    for index, name in enumerate(names):
+        mask = assigned == index
+        count = int(mask.sum())
+        line = f"{name:<12}{count:>8}{count / total:>8.1%}"
+        if labels is not None:
+            inside: Counter[Hashable] = Counter()
+            for row in np.flatnonzero(mask).tolist():
+                inside.update(set(labels[row]))
+            if few:
+                line += "".join(f"{inside[label] / max(count, 1):>12.1%}" for label in columns)
+            else:
+                gap = max(
+                    (
+                        abs(inside[label] / max(count, 1) - overall[label] / total)
+                        for label in overall
+                    ),
+                    default=0.0,
+                )
+                line += f"{gap * 100:>14.2f} pp"
+        lines.append(line)
+    if few:
+        lines.append(
+            f"{'(all)':<12}{total:>8}{1:>8.1%}"
+            + "".join(f"{overall[label] / total:>12.1%}" for label in columns)
+        )
+    return lines
 
 
 def _run_split(args: argparse.Namespace) -> int:
-    _require_distinct_paths(
-        input=args.input,
-        assignments=args.assignments,
-        manifest=args.manifest,
+    rows = read_rows(args.data)
+    texts = _texts(rows, args.text_field, args.data)
+    neardup = near_duplicate_groups(texts, args.threshold)
+    user_groups = (
+        [_group_key(row.get(args.group_field)) for row in rows] if args.group_field else None
     )
-    records = _load(args)
-    if args.algorithm == "hash":
-        if args.max_local_iterations is not None:
-            raise ValueError("--max-local-iterations is only valid for group algorithms")
-        assignments = hash_split(records, args.ratios, seed=args.seed)
-        optimizer = "record-hash-v1"
+    merged = merge_groups(neardup, user_groups)
+    labels = _labels(rows, args.label_field) if args.label_field else None
+    if args.folds is not None:
+        if args.folds < 2:
+            raise ValueError("--folds must be at least 2")
+        names = [str(fold) for fold in range(args.folds)]
+        ratios = [1.0 / args.folds] * args.folds
+        column = args.column or "fold"
     else:
-        algorithm = balanced_group_split if args.algorithm == "group" else stratified_group_split
-        assignments = algorithm(
-            records,
-            args.ratios,
-            seed=args.seed,
-            max_local_iterations=args.max_local_iterations,
-        )
-        optimizer = "greedy-local-v3"
-    manifest = create_manifest(
-        records,
-        assignments,
-        algorithm=args.algorithm,
-        algorithm_version=ALGORITHM_VERSION,
-        seed=args.seed,
-        ratios=args.ratios,
-        metadata={
-            "optimizer": optimizer,
-            "max_local_iterations": args.max_local_iterations,
-        },
-    )
-    save_assignments(assignments, args.assignments)
-    save_manifest(manifest, args.manifest)
+        targets = args.ratios or {"train": 0.8, "test": 0.2}
+        names, ratios = list(targets), list(targets.values())
+        column = args.column or "split"
+    n_groups = int(np.max(merged)) + 1
+    if n_groups < len(names):
+        raise ValueError(f"only {n_groups} groups, cannot fill {len(names)} splits")
+    assigned = assign_groups(merged, ratios, labels, seed=args.seed)
+    sizes = np.bincount(merged)
+    print(f"{len(rows)} rows -> {n_groups} groups (near-duplicate threshold {args.threshold:.2f})")
     print(
-        report_markdown(
-            diagnose(
-                records,
-                assignments,
-                args.ratios,
-                include_label_balance=args.algorithm == "stratified-group",
-            )
-        )
+        f"rows sharing a group with another row: {int(sizes[sizes > 1].sum())}, "
+        f"largest group: {int(np.max(sizes))} rows"
     )
-    return 0
-
-
-def _run_kfold(args: argparse.Namespace) -> int:
-    _require_distinct_paths(
-        input=args.input,
-        assignments=args.assignments,
-        manifest=args.manifest,
-    )
-    records = _load(args)
-    assignments = assign_kfold(
-        records,
-        args.folds,
-        seed=args.seed,
-        stratified=args.stratified,
-        max_local_iterations=args.max_local_iterations,
-    )
-    ratios = {f"fold-{index}": 1 / args.folds for index in range(args.folds)}
-    manifest = create_manifest(
-        records,
-        assignments,
-        algorithm="stratified-group-kfold" if args.stratified else "group-kfold",
-        algorithm_version=ALGORITHM_VERSION,
-        seed=args.seed,
-        ratios=ratios,
-        metadata={
-            "folds": args.folds,
-            "optimizer": "greedy-local-v3",
-            "max_local_iterations": args.max_local_iterations,
-        },
-    )
-    save_assignments(assignments, args.assignments)
-    save_manifest(manifest, args.manifest)
-    print(
-        report_markdown(
-            diagnose(
-                records,
-                assignments,
-                ratios,
-                include_label_balance=args.stratified,
-            )
-        )
-    )
-    return 0
-
-
-def _run_verify(args: argparse.Namespace) -> int:
-    _require_distinct_paths(
-        input=args.input,
-        manifest=args.manifest,
-        assignments=args.assignments,
-    )
-    external = load_assignments(args.assignments) if args.assignments else None
-    errors = verify_manifest(load_manifest(args.manifest), _load(args), external)
-    return _print_verification(errors)
-
-
-def _print_verification(errors: tuple[str, ...]) -> int:
-    if errors:
-        print("Verification failed:", file=sys.stderr)
-        for error in errors:
-            print(f"- {error}", file=sys.stderr)
-        return 1
-    print(
-        "Verification passed: checksum, dataset, coverage, assignments, "
-        "and algorithm constraints match."
-    )
-    return 0
-
-
-def _run_inspect(args: argparse.Namespace) -> int:
-    _require_distinct_paths(
-        input=args.input,
-        manifest=args.manifest,
-        output=args.output,
-    )
-    records = _load(args)
-    manifest = load_manifest(args.manifest)
-    errors = verify_manifest(manifest, records)
-    if errors:
-        return _print_verification(errors)
-    report = diagnose(
-        records,
-        manifest.assignments,
-        manifest.ratios,
-        include_label_balance="stratified" in manifest.algorithm,
-    )
-    rendered = report_json(report) + "\n" if args.format == "json" else report_markdown(report)
-    if args.output:
-        args.output.write_text(rendered, encoding="utf-8")
-    else:
-        print(rendered, end="")
+    for line in _summary(names, assigned, labels):
+        print(line)
+    for row, index in zip(rows, assigned.tolist()):
+        row[column] = int(names[index]) if args.folds is not None else names[index]
+    write_rows(rows, args.output)
+    print(f"wrote {args.output}")
     return 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """Run the CLI and convert validation errors into concise exit status 2."""
     args = build_parser().parse_args(argv)
-    runners = {
-        "split": _run_split,
-        "kfold": _run_kfold,
-        "verify": _run_verify,
-        "inspect": _run_inspect,
-    }
     try:
-        return runners[args.command](args)
-    except (ValueError, OSError, TypeError, KeyError) as error:
+        if args.command == "audit":
+            return _run_audit(args)
+        return _run_split(args)
+    except (ValueError, OSError, TypeError) as error:
         print(f"splitproof: error: {error}", file=sys.stderr)
         return 2
 

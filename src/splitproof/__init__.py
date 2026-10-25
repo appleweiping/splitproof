@@ -1,25 +1,20 @@
-"""SplitProof: reproducible, group-aware dataset partitioning."""
+"""splitproof: train/test splits for text data that keep near-duplicates together."""
 
-from .assigners import balanced_group_split, hash_split, stratified_group_split
-from .diagnostics import diagnose
-from .kfold import assign_kfold
-from .manifest import create_manifest, load_manifest, save_manifest, verify_manifest
-from .models import Assignment, Record, SplitDiagnostics, SplitManifest
+from .assign import assign_groups
+from .audit import LeakageReport, leakage_report
+from .neardup import find_cross_duplicates, near_duplicate_groups, normalize_text
+from .splitters import NearDupKFold, assign_splits, merge_groups
 
 __all__ = [
-    "Assignment",
-    "Record",
-    "SplitDiagnostics",
-    "SplitManifest",
-    "assign_kfold",
-    "balanced_group_split",
-    "create_manifest",
-    "diagnose",
-    "hash_split",
-    "load_manifest",
-    "save_manifest",
-    "stratified_group_split",
-    "verify_manifest",
+    "LeakageReport",
+    "NearDupKFold",
+    "assign_groups",
+    "assign_splits",
+    "find_cross_duplicates",
+    "leakage_report",
+    "merge_groups",
+    "near_duplicate_groups",
+    "normalize_text",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

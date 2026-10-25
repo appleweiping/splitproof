@@ -1,92 +1,85 @@
-"""JSON and JSONL record input/output."""
+"""Read and write rows as JSON Lines, JSON arrays, CSV/TSV or Parquet."""
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+import csv
+import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from .jsonutil import strict_dumps, strict_loads
-from .models import Assignment, Record
+FORMATS = ".jsonl, .json, .csv, .tsv or .parquet"
 
 
-def load_records(
-    path: str | Path,
-    *,
-    id_field: str = "id",
-    group_field: str = "group",
-    label_field: str = "label",
-    weight_field: str = "weight",
-    group_weight_field: str = "group_weight",
-) -> tuple[Record, ...]:
-    """Load records from a JSON array or newline-delimited JSON objects."""
+def _pyarrow() -> Any:
+    try:
+        import pyarrow.parquet as parquet
+    except ImportError:  # pragma: no cover - depends on the environment
+        raise ValueError(
+            "reading Parquet needs pyarrow: pip install 'splitproof[parquet]'"
+        ) from None
+    return parquet
+
+
+def read_rows(path: str | Path) -> list[dict[str, Any]]:
+    """Load a dataset as a list of dicts, choosing the format by file extension."""
     source = Path(path)
-    text = source.read_text(encoding="utf-8")
-    if source.suffix.lower() == ".jsonl":
-        values: list[Any] = []
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if not line.strip():
-                continue
-            try:
-                values.append(strict_loads(line))
-            except ValueError as error:
-                raise ValueError(f"line {line_number}: {error}") from error
-    else:
-        decoded = strict_loads(text)
-        if not isinstance(decoded, list):
-            raise ValueError("JSON dataset root must be an array")
-        values = decoded
-    records: list[Record] = []
-    for index, value in enumerate(values, start=1):
-        if not isinstance(value, Mapping):
-            raise ValueError(f"record {index} must be a JSON object")
-        records.append(
-            Record.from_mapping(
-                value,
-                id_field=id_field,
-                group_field=group_field,
-                label_field=label_field,
-                weight_field=weight_field,
-                group_weight_field=group_weight_field,
+    suffix = source.suffix.lower()
+    if suffix in {".csv", ".tsv"}:
+        with source.open(encoding="utf-8", newline="") as stream:
+            return list(csv.DictReader(stream, delimiter="\t" if suffix == ".tsv" else ","))
+    if suffix in {".jsonl", ".ndjson"}:
+        rows = []
+        with source.open(encoding="utf-8") as stream:
+            for number, line in enumerate(stream, 1):
+                if not line.strip():
+                    continue
+                try:
+                    value = json.loads(line)
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"{source}:{number}: invalid JSON ({error.msg})") from error
+                if not isinstance(value, dict):
+                    raise ValueError(f"{source}:{number}: expected a JSON object")
+                rows.append(value)
+        return rows
+    if suffix == ".json":
+        value = json.loads(source.read_text(encoding="utf-8"))
+        if not isinstance(value, list) or not all(isinstance(item, dict) for item in value):
+            raise ValueError(f"{source}: expected a JSON array of objects")
+        return value
+    if suffix == ".parquet":
+        if not source.exists():
+            raise FileNotFoundError(f"{source}: no such file")
+        rows = _pyarrow().read_table(source).to_pylist()
+        return [dict(row) for row in rows]
+    raise ValueError(f"{source}: unsupported file type (use {FORMATS})")
+
+
+def write_rows(rows: Iterable[dict[str, Any]], path: str | Path) -> None:
+    """Write rows in the format implied by the file extension."""
+    target = Path(path)
+    suffix = target.suffix.lower()
+    materialized = list(rows)
+    if suffix in {".csv", ".tsv"}:
+        fields: dict[str, None] = {}
+        for row in materialized:
+            fields.update(dict.fromkeys(row))
+        with target.open("w", encoding="utf-8", newline="") as stream:
+            writer = csv.DictWriter(
+                stream, fieldnames=list(fields), delimiter="\t" if suffix == ".tsv" else ","
             )
-        )
-    return tuple(records)
+            writer.writeheader()
+            writer.writerows(materialized)
+    elif suffix in {".jsonl", ".ndjson"}:
+        with target.open("w", encoding="utf-8") as stream:
+            for row in materialized:
+                stream.write(json.dumps(row, ensure_ascii=False) + "\n")
+    elif suffix == ".json":
+        target.write_text(json.dumps(materialized, ensure_ascii=False, indent=1) + "\n", "utf-8")
+    elif suffix == ".parquet":
+        parquet = _pyarrow()
+        import pyarrow
 
-
-def save_assignments(assignments: Iterable[Assignment], path: str | Path) -> None:
-    """Write assignments as deterministic JSONL."""
-    lines = [
-        strict_dumps(
-            {"id": item.record_id, "split": item.split, "fold": item.fold},
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        for item in sorted(assignments, key=lambda value: value.record_id)
-    ]
-    Path(path).write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
-
-
-def load_assignments(path: str | Path) -> tuple[Assignment, ...]:
-    """Load strict assignment JSONL with exact fields and stable scalar types."""
-    result: list[Assignment] = []
-    for line_number, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
-        if not line.strip():
-            continue
-        try:
-            value = strict_loads(line)
-        except ValueError as error:
-            raise ValueError(f"line {line_number}: {error}") from error
-        if not isinstance(value, Mapping):
-            raise ValueError(f"assignment line {line_number} must be a JSON object")
-        fields = {"id", "split", "fold"}
-        if set(value) != fields:
-            raise ValueError(f"assignment line {line_number} has invalid fields")
-        record_id, split, fold = value["id"], value["split"], value["fold"]
-        if not isinstance(record_id, str) or not record_id.strip():
-            raise ValueError(f"assignment line {line_number} has an invalid id")
-        if not isinstance(split, str) or not split:
-            raise ValueError(f"assignment line {line_number} has an invalid split")
-        if fold is not None and (isinstance(fold, bool) or not isinstance(fold, int) or fold < 0):
-            raise ValueError(f"assignment line {line_number} has an invalid fold")
-        result.append(Assignment(record_id, split, fold))
-    return tuple(result)
+        parquet.write_table(pyarrow.Table.from_pylist(materialized), target)
+    else:
+        raise ValueError(f"{target}: unsupported file type (use {FORMATS})")
